@@ -1,100 +1,125 @@
 import "./styles.css";
 
+const metrics = [
+  { label: "Invoices Tracked", value: "12,480+" },
+  { label: "Potential Tax Saved", value: "INR 8.4 Cr" },
+  { label: "Avg Auction Rate", value: "9.2%" },
+  { label: "Audit Packet Time", value: "< 30 sec" }
+];
+
 const phases = [
   {
-    title: "Phase 1: Deep-ERP Ingestion",
-    desc: "Read-write agents connect to Tally, SAP, and Oracle to ingest invoices, payments, and vendor masters.",
-    bullets: [
-      "GSTIN + Udyam live verification",
-      "Auto-tag: Micro, Small, Non-MSME",
-      "Appointed-day smart ledgering (15/45 day clock)"
-    ]
+    phase: "Phase 1",
+    title: "Deep-ERP Ingestion",
+    text: "Read-write agents connect with Tally, SAP, and Oracle to ingest vendor masters, invoices, and appointed-day logic."
   },
   {
-    title: "Phase 2: Compliance Watchdog",
-    desc: "AI continuously calculates tax-at-risk and alerts before Section 43B(h) deadlines are breached.",
-    bullets: [
-      "Real-time aging and exposure view",
-      "Predictive cash-gap detection",
-      "Day-35/40 critical escalation triggers"
-    ]
+    phase: "Phase 2",
+    title: "Compliance Watchdog",
+    text: "Predictive aging continuously computes 15/45-day compliance windows and flags tax-at-risk before a breach."
   },
   {
-    title: "Phase 3: Liquidity Bridge",
-    desc: "If liquidity is insufficient, KredXcel launches a flash auction among NBFCs and banks.",
-    bullets: [
-      "Risk-based lender pricing",
-      "Lowest-cost bid optimization",
-      "Atomic split-payment orchestration"
-    ]
+    phase: "Phase 3",
+    title: "Liquidity Bridge",
+    text: "Flash-auction engine runs lender bidding across NBFCs and banks to fund MSME payouts at lowest cost."
   },
   {
-    title: "Phase 4: Audit Vault",
-    desc: "Each settlement is preserved as scrutiny-ready legal evidence for tax and statutory audits.",
-    bullets: [
-      "UTR-linked proof of settlement",
-      "Immutable compliance snapshots",
-      "Form 3CD and Notes-to-Accounts outputs"
-    ]
+    phase: "Phase 4",
+    title: "Audit Vault",
+    text: "Every settlement is packed with UTR evidence, timestamp proofs, and 43B(h)-ready disclosure snapshots."
   }
 ];
 
-const advanced = [
-  "NLP Contract Intelligence Agent",
-  "GSTN-Udyam Status Fluctuation Detection",
-  "Monte Carlo What-If Tax Simulations",
-  "Quarterly Advance-Tax Optimizer",
-  "Blockchain-hashed Compliance Certificates",
-  "Vendor Negotiation & Early-Pay Bot"
+const capabilities = [
+  "GSTN-Udyam Deep Link Verification",
+  "NLP Agreement Intelligence (15 vs 45 day)",
+  "Dynamic Risk-Based Financing Scores",
+  "Split-Payment Orchestration",
+  "Monte Carlo Tax Exposure Simulation",
+  "Form 3CD / Notes-to-Accounts Generator"
 ];
 
-export default function App() {
+function App() {
   return (
-    <div className="page">
+    <div className="site">
       <header className="hero">
-        <p className="tag">Autonomous Treasury for Section 43B(h)</p>
-        <h1>KredXcel</h1>
-        <p className="subtitle">
-          Prevent MSME payment delays from becoming a 30% tax penalty.
-          Monitor risk, trigger funding, settle dues, and defend every claim.
-        </p>
+        <nav className="nav">
+          <div className="logo">KredXcel</div>
+          <div className="nav-links">
+            <a href="#workflow">Workflow</a>
+            <a href="#capabilities">Capabilities</a>
+            <a href="#architecture">Architecture</a>
+          </div>
+        </nav>
+
+        <div className="hero-body">
+          <p className="eyebrow">Autonomous Treasury Infrastructure</p>
+          <h1>Section 43B(h) Compliance, Liquidity, and Audit Defense in One System.</h1>
+          <p className="lead">
+            KredXcel helps enterprises avoid tax leakage by monitoring MSME dues, predicting liquidity gaps,
+            executing low-cost financing, and generating scrutiny-proof legal evidence.
+          </p>
+          <div className="actions">
+            <button type="button" className="btn btn-solid">Request Pilot</button>
+            <button type="button" className="btn btn-ghost">View Demo Flow</button>
+          </div>
+        </div>
       </header>
 
-      <section>
-        <h2>Product Workflow</h2>
-        <div className="grid">
-          {phases.map((p) => (
-            <article className="card" key={p.title}>
-              <h3>{p.title}</h3>
-              <p>{p.desc}</p>
-              <ul>
-                {p.bullets.map((b) => (
-                  <li key={b}>{b}</li>
-                ))}
-              </ul>
+      <section className="metrics">
+        {metrics.map((metric) => (
+          <article key={metric.label} className="metric-card">
+            <p className="metric-value">{metric.value}</p>
+            <p className="metric-label">{metric.label}</p>
+          </article>
+        ))}
+      </section>
+
+      <section id="workflow" className="panel">
+        <h2>Full Workflow</h2>
+        <div className="timeline">
+          {phases.map((item) => (
+            <article className="timeline-card" key={item.title}>
+              <span>{item.phase}</span>
+              <h3>{item.title}</h3>
+              <p>{item.text}</p>
             </article>
           ))}
         </div>
       </section>
 
-      <section>
-        <h2>Advanced Features</h2>
+      <section id="capabilities" className="panel">
+        <h2>Advanced Capabilities</h2>
         <div className="chips">
-          {advanced.map((a) => (
-            <span className="chip" key={a}>
-              {a}
-            </span>
+          {capabilities.map((item) => (
+            <span key={item} className="chip">{item}</span>
           ))}
         </div>
       </section>
 
-      <section className="cta">
-        <h2>Built for CFO, Treasury, Tax, and Audit Teams</h2>
-        <p>
-          Connect ERP. Verify MSME status. Predict exposure. Execute liquidity.
-          Generate one-click compliance proof.
-        </p>
+      <section id="architecture" className="architecture">
+        <h2>Agentic Ledger Stack</h2>
+        <div className="stack-grid">
+          <article>
+            <h3>Ingestion Agents</h3>
+            <p>ERP connectors, invoice normalization, appointed-day reconciliation.</p>
+          </article>
+          <article>
+            <h3>Intelligence Agents</h3>
+            <p>Vendor classification, contract NLP, predictive exposure forecasting.</p>
+          </article>
+          <article>
+            <h3>Execution Agents</h3>
+            <p>Auctioneer, bid optimizer, split-payment and payment routing.</p>
+          </article>
+          <article>
+            <h3>Assurance Agents</h3>
+            <p>Audit-vault certificates, disclosure packs, and compliance snapshots.</p>
+          </article>
+        </div>
       </section>
     </div>
   );
 }
+
+export default App;
