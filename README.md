@@ -1,34 +1,49 @@
 # KredXcel
 
-AI driven Autonomous Treasury for Section 43B(h) MSME compliance, liquidity bridge, and audit readiness.
+KredXcel is an AI-driven autonomous treasury platform for Section 43B(h) compliance, liquidity action, and audit-ready evidence workflows.
+
+## What Is Live Now
+
+- Real ingestion APIs for vendors and invoices
+- Real computed compliance metrics from stored records
+- Real exposure table (no hardcoded business numbers)
+- What-if delay simulation for additional tax risk
+- Frontend forms connected to backend APIs
 
 ## Project Structure
 
-- frontend: Vite and React website
-- backend: Node.js API server
+- `frontend/` Vite + React app
+- `backend/` Node.js API server
 
 ## Run Locally
 
-Terminal 1 backend:
-cd /Users/atharavsingh/Documents/MyProjects/KredXcel/backend
-npm run dev
+Terminal 1:
 
-Terminal 2 frontend:
+```bash
+cd /Users/atharavsingh/Documents/MyProjects/KredXcel/backend
+PORT=5001 npm run dev
+```
+
+Terminal 2:
+
+```bash
 cd /Users/atharavsingh/Documents/MyProjects/KredXcel/frontend
 npm run dev
+```
 
-Frontend opens automatically at http://localhost:5173.
+Frontend opens automatically at `http://localhost:5173`.
 
 ## API Endpoints
 
-- GET /api/health
-- GET /api/site
-- POST /api/contact
+- `GET /api/health`
+- `GET /api/site`
+- `GET /api/treasury/metrics`
+- `GET /api/treasury/exposure`
+- `POST /api/ingest/vendors`
+- `POST /api/ingest/invoices`
+- `POST /api/simulate/exposure`
+- `POST /api/contact`
 
-## Milestones
+## Data Note
 
-- M1 Landing and API Foundation: Done
-- M2 ERP Connector Adapters: In Progress
-- M3 Predictive Tax at Risk Engine: Planned
-- M4 Liquidity Flash Auction Integration: Planned
-- M5 Audit Vault and 3CD Export: Planned
+`backend/storage.json` is intentionally git-ignored so your real local records do not get pushed to GitHub.

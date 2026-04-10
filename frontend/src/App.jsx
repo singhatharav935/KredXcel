@@ -1,212 +1,293 @@
 import { useEffect, useMemo, useState } from "react";
 import "./styles.css";
 
-const fallbackData = {
+const emptySite = {
   hero: {
-    eyebrow: "Autonomous Treasury Infrastructure",
-    title: "Section 43B(h) Compliance, Liquidity, and Audit Defense in One System",
-    subtitle:
-      "KredXcel prevents MSME payment delays from turning into tax leakage by monitoring risk, triggering liquidity, and generating scrutiny-proof compliance evidence."
+    eyebrow: "",
+    title: "",
+    subtitle: ""
   },
-  kpis: [],
   phases: [],
-  capabilities: [],
-  architecture: [],
-  roadmap: []
+  capabilities: []
 };
 
+const emptyMetrics = {
+  vendors: 0,
+  invoices: 0,
+  openInvoices: 0,
+  overdueInvoices: 0,
+  paidInvoices: 0,
+  totalOutstanding: 0,
+  totalTaxAtRisk: 0
+};
+
+function currency(value) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0
+  }).format(value || 0);
+}
+
 function App() {
-  const [data, setData] = useState(fallbackData);
-  const [loading, setLoading] = useState(true);
-  const [apiError, setApiError] = useState("");
-  const [contact, setContact] = useState({ name: "", email: "", message: "" });
-  const [contactResult, setContactResult] = useState("");
-  const [contactLoading, setContactLoading] = useState(false);
+  const [site, setSite] = useState(emptySite);
+  const [metrics, setMetrics] = useState(emptyMetrics);
+  const [exposure, setExposure] = useState([]);
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    let active = true;
+  const [vendorForm, setVendorForm] = useState({
+    vendorId: "",
+    name: "",
+    enterpriseType: "micro",
+    gstin: "",
+    udyam: ""
+  });
 
-    async function loadSite() {
-      try {
-        const res = await fetch("/api/site");
-        if (!res.ok) {
-          throw new Error("Failed to fetch website data");
-        }
-        const payload = await res.json();
-        if (active) {
-          setData(payload);
-          setApiError("");
-        }
-      } catch (_error) {
-        if (active) {
-          setApiError("Backend is not running. Start backend on port 5000 to load live data.");
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    }
+  const [invoiceForm, setInvoiceForm] = useState({
+    invoiceId: "",
+    vendorId: "",
+    amount: "",
+    invoiceDate: "",
+    acceptanceDate: "",
+    hasWrittenAgreement: true,
+    paymentDate: "",
+    utrNumber: ""
+  });
 
-    loadSite();
-    return () => {
-      active = false;
-    };
-  }, []);
+  const [simulationForm, setSimulationForm] = useState({
+    delayDays: 10,
+    enterpriseType: ""
+  });
 
-  const roadmapDoneCount = useMemo(
-    () => data.roadmap.filter((item) => item.status.toLowerCase() === "done").length,
-    [data.roadmap]
+  const [simulationResult, setSimulationResult] = useState(null);
+  const [notice, setNotice] = useState("");
+
+  const topExposure = useMemo(
+    () => [...exposure].sort((a, b) => b.taxAtRisk - a.taxAtRisk).slice(0, 8),
+    [exposure]
   );
 
-  async function submitContact(event) {
-    event.preventDefault();
-    setContactLoading(true);
-    setContactResult("");
-
+  async function refreshData() {
     try {
-      const res = await fetch("/api/contact", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(contact)
-      });
-      const payload = await res.json();
-      if (!res.ok) {
-        throw new Error(payload.error || "Failed to submit inquiry");
+      const [siteRes, metricsRes, exposureRes] = await Promise.all([
+        fetch("/api/site"),
+        fetch("/api/treasury/metrics"),
+        fetch("/api/treasury/exposure")
+      ]);
+
+      if (!siteRes.ok || !metricsRes.ok || !exposureRes.ok) {
+        throw new Error("API unavailable");
       }
 
-      setContactResult(`Request submitted. Ticket: ${payload.ticketId}`);
-      setContact({ name: "", email: "", message: "" });
-    } catch (error) {
-      setContactResult(error.message || "Unable to submit request.");
-    } finally {
-      setContactLoading(false);
+      const [sitePayload, metricsPayload, exposurePayload] = await Promise.all([
+        siteRes.json(),
+        metricsRes.json(),
+        exposureRes.json()
+      ]);
+
+      setSite(sitePayload);
+      setMetrics(metricsPayload);
+      setExposure(exposurePayload);
+      setError("");
+    } catch (_err) {
+      setError("Backend unavailable. Start backend first, then refresh.");
     }
+  }
+
+  useEffect(() => {
+    refreshData();
+  }, []);
+
+  async function submitVendor(event) {
+    event.preventDefault();
+    const res = await fetch("/api/ingest/vendors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vendors: [vendorForm] })
+    });
+
+    const payload = await res.json();
+    if (!res.ok) {
+      setNotice(payload.error || "Failed to ingest vendor");
+      return;
+    }
+
+    setNotice("Vendor ingested successfully");
+    setVendorForm({ vendorId: "", name: "", enterpriseType: "micro", gstin: "", udyam: "" });
+    refreshData();
+  }
+
+  async function submitInvoice(event) {
+    event.preventDefault();
+    const payload = {
+      ...invoiceForm,
+      amount: Number(invoiceForm.amount || 0)
+    };
+
+    const res = await fetch("/api/ingest/invoices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invoices: [payload] })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      setNotice(data.error || "Failed to ingest invoice");
+      return;
+    }
+
+    setNotice("Invoice ingested successfully");
+    setInvoiceForm({
+      invoiceId: "",
+      vendorId: "",
+      amount: "",
+      invoiceDate: "",
+      acceptanceDate: "",
+      hasWrittenAgreement: true,
+      paymentDate: "",
+      utrNumber: ""
+    });
+    refreshData();
+  }
+
+  async function runSimulation(event) {
+    event.preventDefault();
+    const res = await fetch("/api/simulate/exposure", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(simulationForm)
+    });
+
+    const payload = await res.json();
+    if (!res.ok) {
+      setNotice(payload.error || "Simulation failed");
+      return;
+    }
+
+    setSimulationResult(payload.result);
+    setNotice("Simulation completed");
   }
 
   return (
     <div className="site">
       <header className="hero">
-        <nav className="nav">
-          <div className="logo">KredXcel</div>
-          <div className="nav-links">
-            <a href="#workflow">Workflow</a>
-            <a href="#capabilities">Capabilities</a>
-            <a href="#roadmap">Roadmap</a>
-            <a href="#contact">Contact</a>
-          </div>
-        </nav>
-
-        <div className="hero-body">
-          <p className="eyebrow">{data.hero.eyebrow}</p>
-          <h1>{data.hero.title}</h1>
-          <p className="lead">{data.hero.subtitle}</p>
-          <div className="actions">
-            <a className="btn btn-solid" href="#contact">Request Pilot</a>
-            <a className="btn btn-ghost" href="#workflow">Explore Workflow</a>
-          </div>
-        </div>
+        <p className="eyebrow">{site.hero.eyebrow}</p>
+        <h1>{site.hero.title}</h1>
+        <p className="lead">{site.hero.subtitle}</p>
       </header>
 
-      {apiError ? <p className="warning">{apiError}</p> : null}
+      {error ? <p className="warning">{error}</p> : null}
+      {notice ? <p className="notice">{notice}</p> : null}
 
-      <section className="metrics" aria-busy={loading}>
-        {data.kpis.map((metric) => (
-          <article key={metric.label} className="metric-card">
-            <p className="metric-value">{metric.value}</p>
-            <p className="metric-label">{metric.label}</p>
-          </article>
-        ))}
+      <section className="metrics-grid">
+        <article className="card"><h3>{metrics.vendors}</h3><p>Vendors</p></article>
+        <article className="card"><h3>{metrics.invoices}</h3><p>Invoices</p></article>
+        <article className="card"><h3>{metrics.openInvoices}</h3><p>Open Invoices</p></article>
+        <article className="card"><h3>{metrics.overdueInvoices}</h3><p>Overdue Invoices</p></article>
+        <article className="card"><h3>{currency(metrics.totalOutstanding)}</h3><p>Total Outstanding</p></article>
+        <article className="card"><h3>{currency(metrics.totalTaxAtRisk)}</h3><p>Total Tax At Risk</p></article>
       </section>
 
-      <section id="workflow" className="panel">
-        <h2>End-to-End Workflow</h2>
+      <section className="panel">
+        <h2>Workflow</h2>
         <div className="timeline">
-          {data.phases.map((item) => (
-            <article className="timeline-card" key={item.title}>
-              <span>{item.phase}</span>
-              <h3>{item.title}</h3>
-              <p>{item.text}</p>
+          {site.phases.map((phase) => (
+            <article className="timeline-card" key={phase.phase}>
+              <strong>{phase.phase}</strong>
+              <h3>{phase.title}</h3>
+              <p>{phase.text}</p>
             </article>
           ))}
         </div>
       </section>
 
-      <section id="capabilities" className="panel">
-        <h2>KredXcel 2.0 Advanced Capabilities</h2>
-        <div className="chips">
-          {data.capabilities.map((item) => (
-            <span key={item} className="chip">{item}</span>
-          ))}
-        </div>
-      </section>
-
-      <section className="architecture">
-        <h2>Agentic Ledger Stack</h2>
-        <div className="stack-grid">
-          {data.architecture.map((item) => (
-            <article key={item.title}>
-              <h3>{item.title}</h3>
-              <p>{item.text}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section id="roadmap" className="panel">
-        <h2>Execution Roadmap</h2>
-        <p className="roadmap-summary">
-          {roadmapDoneCount} of {data.roadmap.length} milestones completed.
-        </p>
-        <div className="roadmap-grid">
-          {data.roadmap.map((item) => (
-            <article key={item.milestone} className="roadmap-card">
-              <p className="roadmap-id">{item.milestone}</p>
-              <h3>{item.name}</h3>
-              <span className={`status status-${item.status.toLowerCase().replace(/\s+/g, "-")}`}>
-                {item.status}
-              </span>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section id="contact" className="contact-panel">
-        <div>
-          <h2>Talk to KredXcel Team</h2>
-          <p>
-            Share your ERP stack, MSME vendor count, and current payment cycle. We will map an implementation plan
-            for your finance and tax teams.
-          </p>
-        </div>
-
-        <form className="contact-form" onSubmit={submitContact}>
-          <input
-            required
-            type="text"
-            placeholder="Name"
-            value={contact.name}
-            onChange={(event) => setContact((prev) => ({ ...prev, name: event.target.value }))}
-          />
-          <input
-            required
-            type="email"
-            placeholder="Email"
-            value={contact.email}
-            onChange={(event) => setContact((prev) => ({ ...prev, email: event.target.value }))}
-          />
-          <textarea
-            required
-            placeholder="Message"
-            rows={4}
-            value={contact.message}
-            onChange={(event) => setContact((prev) => ({ ...prev, message: event.target.value }))}
-          />
-          <button className="btn btn-solid" type="submit" disabled={contactLoading}>
-            {contactLoading ? "Submitting..." : "Submit Inquiry"}
-          </button>
-          {contactResult ? <p className="contact-result">{contactResult}</p> : null}
+      <section className="panel">
+        <h2>Ingest Vendor</h2>
+        <form className="form-grid" onSubmit={submitVendor}>
+          <input required placeholder="Vendor ID" value={vendorForm.vendorId} onChange={(e) => setVendorForm({ ...vendorForm, vendorId: e.target.value })} />
+          <input required placeholder="Vendor Name" value={vendorForm.name} onChange={(e) => setVendorForm({ ...vendorForm, name: e.target.value })} />
+          <select value={vendorForm.enterpriseType} onChange={(e) => setVendorForm({ ...vendorForm, enterpriseType: e.target.value })}>
+            <option value="micro">Micro</option>
+            <option value="small">Small</option>
+            <option value="non-msme">Non-MSME</option>
+          </select>
+          <input placeholder="GSTIN" value={vendorForm.gstin} onChange={(e) => setVendorForm({ ...vendorForm, gstin: e.target.value })} />
+          <input placeholder="Udyam" value={vendorForm.udyam} onChange={(e) => setVendorForm({ ...vendorForm, udyam: e.target.value })} />
+          <button className="btn" type="submit">Save Vendor</button>
         </form>
+      </section>
+
+      <section className="panel">
+        <h2>Ingest Invoice</h2>
+        <form className="form-grid" onSubmit={submitInvoice}>
+          <input required placeholder="Invoice ID" value={invoiceForm.invoiceId} onChange={(e) => setInvoiceForm({ ...invoiceForm, invoiceId: e.target.value })} />
+          <input required placeholder="Vendor ID" value={invoiceForm.vendorId} onChange={(e) => setInvoiceForm({ ...invoiceForm, vendorId: e.target.value })} />
+          <input required type="number" min="1" placeholder="Amount" value={invoiceForm.amount} onChange={(e) => setInvoiceForm({ ...invoiceForm, amount: e.target.value })} />
+          <input required type="date" value={invoiceForm.invoiceDate} onChange={(e) => setInvoiceForm({ ...invoiceForm, invoiceDate: e.target.value })} />
+          <input type="date" value={invoiceForm.acceptanceDate} onChange={(e) => setInvoiceForm({ ...invoiceForm, acceptanceDate: e.target.value })} />
+          <label className="checkbox">
+            <input type="checkbox" checked={invoiceForm.hasWrittenAgreement} onChange={(e) => setInvoiceForm({ ...invoiceForm, hasWrittenAgreement: e.target.checked })} />
+            Written Agreement (45 days)
+          </label>
+          <input type="date" value={invoiceForm.paymentDate} onChange={(e) => setInvoiceForm({ ...invoiceForm, paymentDate: e.target.value })} />
+          <input placeholder="UTR Number" value={invoiceForm.utrNumber} onChange={(e) => setInvoiceForm({ ...invoiceForm, utrNumber: e.target.value })} />
+          <button className="btn" type="submit">Save Invoice</button>
+        </form>
+      </section>
+
+      <section className="panel">
+        <h2>Exposure Simulation</h2>
+        <form className="form-grid" onSubmit={runSimulation}>
+          <input type="number" min="1" value={simulationForm.delayDays} onChange={(e) => setSimulationForm({ ...simulationForm, delayDays: Number(e.target.value || 0) })} />
+          <select value={simulationForm.enterpriseType} onChange={(e) => setSimulationForm({ ...simulationForm, enterpriseType: e.target.value })}>
+            <option value="">All Types</option>
+            <option value="micro">Micro</option>
+            <option value="small">Small</option>
+            <option value="non-msme">Non-MSME</option>
+          </select>
+          <button className="btn" type="submit">Run Simulation</button>
+        </form>
+
+        {simulationResult ? (
+          <div className="sim-result">
+            <p>Impacted Invoices: {simulationResult.impactedInvoices}</p>
+            <p>Additional Tax Risk: {currency(simulationResult.additionalTaxRisk)}</p>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="panel">
+        <h2>Top Tax At Risk Invoices</h2>
+        {topExposure.length === 0 ? (
+          <p>No invoices ingested yet.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Invoice</th>
+                  <th>Vendor</th>
+                  <th>Status</th>
+                  <th>Amount</th>
+                  <th>Tax At Risk</th>
+                  <th>Due Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topExposure.map((row) => (
+                  <tr key={row.invoiceId}>
+                    <td>{row.invoiceId}</td>
+                    <td>{row.vendorName}</td>
+                    <td>{row.status}</td>
+                    <td>{currency(row.amount)}</td>
+                    <td>{currency(row.taxAtRisk)}</td>
+                    <td>{row.dueDate}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );

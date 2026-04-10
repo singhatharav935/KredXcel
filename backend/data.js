@@ -1,73 +1,83 @@
-const siteData = {
+const fs = require("fs");
+const path = require("path");
+
+const DB_PATH = path.join(__dirname, "storage.json");
+
+const siteContent = {
   hero: {
     eyebrow: "Autonomous Treasury Infrastructure",
     title: "Section 43B(h) Compliance, Liquidity, and Audit Defense in One System",
     subtitle:
-      "KredXcel prevents MSME payment delays from turning into tax leakage by monitoring risk, triggering liquidity, and generating scrutiny-proof compliance evidence."
+      "KredXcel connects ERP payment data, computes compliance exposure in real time, and generates evidence-backed reporting workflows."
   },
-  kpis: [
-    { label: "Invoices Monitored", value: "12,480+" },
-    { label: "Potential Tax Saved", value: "INR 8.4 Cr" },
-    { label: "Avg Auction Rate", value: "9.2%" },
-    { label: "Audit Packet Time", value: "< 30 sec" }
-  ],
   phases: [
     {
       phase: "Phase 1",
       title: "Deep-ERP Ingestion",
-      text: "Read-write agents connect to Tally, SAP, and Oracle. Vendor master, invoice events, and appointed-day logic are reconciled in a single ledger."
+      text: "Ingest vendors and invoices through ERP connectors or API import jobs."
     },
     {
       phase: "Phase 2",
       title: "Compliance Watchdog",
-      text: "Predictive aging computes 15/45-day legal windows and warns treasury teams before tax-at-risk exposure materializes."
+      text: "Track 15/45-day timelines and identify dues that are approaching breach."
     },
     {
       phase: "Phase 3",
       title: "Liquidity Bridge",
-      text: "On risk trigger, KredXcel launches a flash auction across NBFC and bank partners, selecting the lowest net-cost bid."
+      text: "Prioritize at-risk invoices for financing or accelerated settlement routes."
     },
     {
       phase: "Phase 4",
       title: "Audit Vault",
-      text: "UTR-backed proof, acceptance timestamps, and MSME status evidence are packaged into auditor-ready compliance snapshots."
+      text: "Prepare evidence packets with settlement timelines and transaction references."
     }
   ],
   capabilities: [
-    "GSTN-Udyam Deep Link Verification",
-    "NLP Contract Intelligence (15 vs 45 day rule)",
-    "Dynamic Risk-Based Pricing Engine",
-    "Split-Payment Orchestrator",
-    "Monte Carlo What-If Tax Simulation",
-    "Quarterly Advance-Tax Optimizer",
-    "Form 3CD and Notes-to-Accounts Generator",
-    "Vendor Negotiation and Early-Pay Agent"
-  ],
-  architecture: [
-    {
-      title: "Ingestion Agents",
-      text: "API connectors, vendor classification, invoice normalization, and appointed-day reconstruction."
-    },
-    {
-      title: "Intelligence Agents",
-      text: "Contract NLP, risk scoring, predictive cash-gap alerts, and tax exposure heatmaps."
-    },
-    {
-      title: "Execution Agents",
-      text: "Auctioneer, lender bid optimization, settlement routing, and split-funding execution."
-    },
-    {
-      title: "Assurance Agents",
-      text: "Compliance certification, cryptographic evidence trails, and disclosure report automation."
-    }
-  ],
-  roadmap: [
-    { milestone: "M1", name: "Landing + API Foundation", status: "Done" },
-    { milestone: "M2", name: "ERP Connector Adapters", status: "In Progress" },
-    { milestone: "M3", name: "Predictive Tax-at-Risk Engine", status: "Planned" },
-    { milestone: "M4", name: "Liquidity Flash-Auction Integration", status: "Planned" },
-    { milestone: "M5", name: "Audit Vault + 3CD Export", status: "Planned" }
+    "GSTN-Udyam Verification Workflows",
+    "Agreement-aware 15/45 day due-date computation",
+    "Real-time exposure and overdue tracking",
+    "What-if delay simulation for tax impact",
+    "Structured compliance evidence outputs"
   ]
 };
 
-module.exports = { siteData };
+function defaultDb() {
+  return {
+    vendors: [],
+    invoices: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function readDb() {
+  if (!fs.existsSync(DB_PATH)) {
+    const seed = defaultDb();
+    fs.writeFileSync(DB_PATH, JSON.stringify(seed, null, 2));
+    return seed;
+  }
+
+  const raw = fs.readFileSync(DB_PATH, "utf8");
+  try {
+    return JSON.parse(raw);
+  } catch (_err) {
+    const seed = defaultDb();
+    fs.writeFileSync(DB_PATH, JSON.stringify(seed, null, 2));
+    return seed;
+  }
+}
+
+function writeDb(next) {
+  const payload = {
+    ...next,
+    updatedAt: new Date().toISOString()
+  };
+  fs.writeFileSync(DB_PATH, JSON.stringify(payload, null, 2));
+  return payload;
+}
+
+module.exports = {
+  siteContent,
+  readDb,
+  writeDb
+};
