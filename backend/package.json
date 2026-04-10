@@ -1,0 +1,19 @@
+{
+  "name": "kredxcel-backend",
+  "version": "1.0.0",
+  "description": "KredXcel API server",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node --watch index.js",
+    "start": "node index.js"
+  },
+  "keywords": [
+    "kredxcel",
+    "section-43b-h",
+    "msme",
+    "treasury"
+  ],
+  "author": "singhatharav935",
+  "license": "ISC"
+}

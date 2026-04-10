@@ -1,45 +1,89 @@
+import { useEffect, useMemo, useState } from "react";
 import "./styles.css";
 
-const metrics = [
-  { label: "Invoices Tracked", value: "12,480+" },
-  { label: "Potential Tax Saved", value: "INR 8.4 Cr" },
-  { label: "Avg Auction Rate", value: "9.2%" },
-  { label: "Audit Packet Time", value: "< 30 sec" }
-];
-
-const phases = [
-  {
-    phase: "Phase 1",
-    title: "Deep-ERP Ingestion",
-    text: "Read-write agents connect with Tally, SAP, and Oracle to ingest vendor masters, invoices, and appointed-day logic."
+const fallbackData = {
+  hero: {
+    eyebrow: "Autonomous Treasury Infrastructure",
+    title: "Section 43B(h) Compliance, Liquidity, and Audit Defense in One System",
+    subtitle:
+      "KredXcel prevents MSME payment delays from turning into tax leakage by monitoring risk, triggering liquidity, and generating scrutiny-proof compliance evidence."
   },
-  {
-    phase: "Phase 2",
-    title: "Compliance Watchdog",
-    text: "Predictive aging continuously computes 15/45-day compliance windows and flags tax-at-risk before a breach."
-  },
-  {
-    phase: "Phase 3",
-    title: "Liquidity Bridge",
-    text: "Flash-auction engine runs lender bidding across NBFCs and banks to fund MSME payouts at lowest cost."
-  },
-  {
-    phase: "Phase 4",
-    title: "Audit Vault",
-    text: "Every settlement is packed with UTR evidence, timestamp proofs, and 43B(h)-ready disclosure snapshots."
-  }
-];
-
-const capabilities = [
-  "GSTN-Udyam Deep Link Verification",
-  "NLP Agreement Intelligence (15 vs 45 day)",
-  "Dynamic Risk-Based Financing Scores",
-  "Split-Payment Orchestration",
-  "Monte Carlo Tax Exposure Simulation",
-  "Form 3CD / Notes-to-Accounts Generator"
-];
+  kpis: [],
+  phases: [],
+  capabilities: [],
+  architecture: [],
+  roadmap: []
+};
 
 function App() {
+  const [data, setData] = useState(fallbackData);
+  const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState("");
+  const [contact, setContact] = useState({ name: "", email: "", message: "" });
+  const [contactResult, setContactResult] = useState("");
+  const [contactLoading, setContactLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadSite() {
+      try {
+        const res = await fetch("/api/site");
+        if (!res.ok) {
+          throw new Error("Failed to fetch website data");
+        }
+        const payload = await res.json();
+        if (active) {
+          setData(payload);
+          setApiError("");
+        }
+      } catch (_error) {
+        if (active) {
+          setApiError("Backend is not running. Start backend on port 5000 to load live data.");
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadSite();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const roadmapDoneCount = useMemo(
+    () => data.roadmap.filter((item) => item.status.toLowerCase() === "done").length,
+    [data.roadmap]
+  );
+
+  async function submitContact(event) {
+    event.preventDefault();
+    setContactLoading(true);
+    setContactResult("");
+
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(contact)
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to submit inquiry");
+      }
+
+      setContactResult(`Request submitted. Ticket: ${payload.ticketId}`);
+      setContact({ name: "", email: "", message: "" });
+    } catch (error) {
+      setContactResult(error.message || "Unable to submit request.");
+    } finally {
+      setContactLoading(false);
+    }
+  }
+
   return (
     <div className="site">
       <header className="hero">
@@ -48,26 +92,26 @@ function App() {
           <div className="nav-links">
             <a href="#workflow">Workflow</a>
             <a href="#capabilities">Capabilities</a>
-            <a href="#architecture">Architecture</a>
+            <a href="#roadmap">Roadmap</a>
+            <a href="#contact">Contact</a>
           </div>
         </nav>
 
         <div className="hero-body">
-          <p className="eyebrow">Autonomous Treasury Infrastructure</p>
-          <h1>Section 43B(h) Compliance, Liquidity, and Audit Defense in One System.</h1>
-          <p className="lead">
-            KredXcel helps enterprises avoid tax leakage by monitoring MSME dues, predicting liquidity gaps,
-            executing low-cost financing, and generating scrutiny-proof legal evidence.
-          </p>
+          <p className="eyebrow">{data.hero.eyebrow}</p>
+          <h1>{data.hero.title}</h1>
+          <p className="lead">{data.hero.subtitle}</p>
           <div className="actions">
-            <button type="button" className="btn btn-solid">Request Pilot</button>
-            <button type="button" className="btn btn-ghost">View Demo Flow</button>
+            <a className="btn btn-solid" href="#contact">Request Pilot</a>
+            <a className="btn btn-ghost" href="#workflow">Explore Workflow</a>
           </div>
         </div>
       </header>
 
-      <section className="metrics">
-        {metrics.map((metric) => (
+      {apiError ? <p className="warning">{apiError}</p> : null}
+
+      <section className="metrics" aria-busy={loading}>
+        {data.kpis.map((metric) => (
           <article key={metric.label} className="metric-card">
             <p className="metric-value">{metric.value}</p>
             <p className="metric-label">{metric.label}</p>
@@ -76,9 +120,9 @@ function App() {
       </section>
 
       <section id="workflow" className="panel">
-        <h2>Full Workflow</h2>
+        <h2>End-to-End Workflow</h2>
         <div className="timeline">
-          {phases.map((item) => (
+          {data.phases.map((item) => (
             <article className="timeline-card" key={item.title}>
               <span>{item.phase}</span>
               <h3>{item.title}</h3>
@@ -89,34 +133,80 @@ function App() {
       </section>
 
       <section id="capabilities" className="panel">
-        <h2>Advanced Capabilities</h2>
+        <h2>KredXcel 2.0 Advanced Capabilities</h2>
         <div className="chips">
-          {capabilities.map((item) => (
+          {data.capabilities.map((item) => (
             <span key={item} className="chip">{item}</span>
           ))}
         </div>
       </section>
 
-      <section id="architecture" className="architecture">
+      <section className="architecture">
         <h2>Agentic Ledger Stack</h2>
         <div className="stack-grid">
-          <article>
-            <h3>Ingestion Agents</h3>
-            <p>ERP connectors, invoice normalization, appointed-day reconciliation.</p>
-          </article>
-          <article>
-            <h3>Intelligence Agents</h3>
-            <p>Vendor classification, contract NLP, predictive exposure forecasting.</p>
-          </article>
-          <article>
-            <h3>Execution Agents</h3>
-            <p>Auctioneer, bid optimizer, split-payment and payment routing.</p>
-          </article>
-          <article>
-            <h3>Assurance Agents</h3>
-            <p>Audit-vault certificates, disclosure packs, and compliance snapshots.</p>
-          </article>
+          {data.architecture.map((item) => (
+            <article key={item.title}>
+              <h3>{item.title}</h3>
+              <p>{item.text}</p>
+            </article>
+          ))}
         </div>
+      </section>
+
+      <section id="roadmap" className="panel">
+        <h2>Execution Roadmap</h2>
+        <p className="roadmap-summary">
+          {roadmapDoneCount} of {data.roadmap.length} milestones completed.
+        </p>
+        <div className="roadmap-grid">
+          {data.roadmap.map((item) => (
+            <article key={item.milestone} className="roadmap-card">
+              <p className="roadmap-id">{item.milestone}</p>
+              <h3>{item.name}</h3>
+              <span className={`status status-${item.status.toLowerCase().replace(/\s+/g, "-")}`}>
+                {item.status}
+              </span>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="contact" className="contact-panel">
+        <div>
+          <h2>Talk to KredXcel Team</h2>
+          <p>
+            Share your ERP stack, MSME vendor count, and current payment cycle. We will map an implementation plan
+            for your finance and tax teams.
+          </p>
+        </div>
+
+        <form className="contact-form" onSubmit={submitContact}>
+          <input
+            required
+            type="text"
+            placeholder="Name"
+            value={contact.name}
+            onChange={(event) => setContact((prev) => ({ ...prev, name: event.target.value }))}
+          />
+          <input
+            required
+            type="email"
+            placeholder="Email"
+            value={contact.email}
+            onChange={(event) => setContact((prev) => ({ ...prev, email: event.target.value }))}
+          />
+          <textarea
+            required
+            placeholder="Message"
+            rows={4}
+            value={contact.message}
+            onChange={(event) => setContact((prev) => ({ ...prev, message: event.target.value }))}
+          />
+          <button className="btn btn-solid" type="submit" disabled={contactLoading}>
+            {contactLoading ? "Submitting..." : "Submit Inquiry"}
+          </button>
+          {contactResult ? <p className="contact-result">{contactResult}</p> : null}
+        </form>
       </section>
     </div>
   );
