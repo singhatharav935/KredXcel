@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import "./styles.css";
 
-const emptySite = {
-  hero: { eyebrow: "", title: "", subtitle: "" },
-  phases: []
-};
-
+const emptySite = { hero: { eyebrow: "", title: "", subtitle: "" }, phases: [] };
 const emptyMetrics = {
   vendors: 0,
   invoices: 0,
@@ -24,37 +20,40 @@ function currency(value) {
   }).format(value || 0);
 }
 
+function parseBids(text) {
+  const lines = String(text || "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  return lines.map((line) => {
+    const [lender, annualRate, processingFeePct] = line.split(",").map((x) => x.trim());
+    return {
+      lender,
+      annualRate: Number(annualRate || 0),
+      processingFeePct: Number(processingFeePct || 0)
+    };
+  });
+}
+
 function App() {
   const [site, setSite] = useState(emptySite);
   const [metrics, setMetrics] = useState(emptyMetrics);
   const [exposure, setExposure] = useState([]);
   const [connectors, setConnectors] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [auctions, setAuctions] = useState([]);
+  const [settlements, setSettlements] = useState([]);
+  const [certificates, setCertificates] = useState([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const [connectorForm, setConnectorForm] = useState({
-    connectorId: "tally",
-    mode: "file",
-    endpoint: "",
-    authType: "none"
-  });
-
-  const [syncForm, setSyncForm] = useState({
-    connectorId: "tally",
-    vendorsCsv: "",
-    invoicesCsv: ""
-  });
-
+  const [connectorForm, setConnectorForm] = useState({ connectorId: "tally", mode: "file", endpoint: "", authType: "none" });
+  const [syncForm, setSyncForm] = useState({ connectorId: "tally", vendorsCsv: "", invoicesCsv: "" });
   const [csvUpload, setCsvUpload] = useState({ vendors: "", invoices: "" });
 
+  const [auctionForm, setAuctionForm] = useState({ invoiceId: "", bidsText: "" });
+  const [settleForm, setSettleForm] = useState({ auctionId: "", paymentDate: "", utrNumber: "" });
   const [simulationForm, setSimulationForm] = useState({ delayDays: 10, enterpriseType: "" });
   const [simulationResult, setSimulationResult] = useState(null);
 
-  const topExposure = useMemo(
-    () => [...exposure].sort((a, b) => b.taxAtRisk - a.taxAtRisk).slice(0, 12),
-    [exposure]
-  );
+  const topExposure = useMemo(() => [...exposure].sort((a, b) => b.taxAtRisk - a.taxAtRisk).slice(0, 12), [exposure]);
 
   async function parseResponse(res) {
     const payload = await res.json();
@@ -66,20 +65,44 @@ function App() {
 
   async function refreshData() {
     try {
-      const [siteRes, metricsRes, exposureRes, connectorsRes, logsRes] = await Promise.all([
+      const [
+        siteRes,
+        metricsRes,
+        exposureRes,
+        connectorsRes,
+        logsRes,
+        auctionsRes,
+        settlementsRes,
+        certificatesRes
+      ] = await Promise.all([
         fetch("/api/site"),
         fetch("/api/treasury/metrics"),
         fetch("/api/treasury/exposure"),
         fetch("/api/connectors"),
-        fetch("/api/ingestion/logs")
+        fetch("/api/ingestion/logs"),
+        fetch("/api/auctions"),
+        fetch("/api/settlements"),
+        fetch("/api/audit/certificates")
       ]);
 
-      const [sitePayload, metricsPayload, exposurePayload, connectorsPayload, logsPayload] = await Promise.all([
+      const [
+        sitePayload,
+        metricsPayload,
+        exposurePayload,
+        connectorsPayload,
+        logsPayload,
+        auctionsPayload,
+        settlementsPayload,
+        certificatesPayload
+      ] = await Promise.all([
         parseResponse(siteRes),
         parseResponse(metricsRes),
         parseResponse(exposureRes),
         parseResponse(connectorsRes),
-        parseResponse(logsRes)
+        parseResponse(logsRes),
+        parseResponse(auctionsRes),
+        parseResponse(settlementsRes),
+        parseResponse(certificatesRes)
       ]);
 
       setSite(sitePayload);
@@ -87,6 +110,9 @@ function App() {
       setExposure(exposurePayload);
       setConnectors(connectorsPayload);
       setLogs(logsPayload);
+      setAuctions(auctionsPayload);
+      setSettlements(settlementsPayload);
+      setCertificates(certificatesPayload);
       setError("");
     } catch (err) {
       setError(err.message || "Backend unavailable");
@@ -100,12 +126,13 @@ function App() {
   async function saveConnectorConfig(event) {
     event.preventDefault();
     try {
-      const res = await fetch("/api/connectors/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(connectorForm)
-      });
-      await parseResponse(res);
+      await parseResponse(
+        await fetch("/api/connectors/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(connectorForm)
+        })
+      );
       setNotice("Connector configuration saved");
       await refreshData();
     } catch (err) {
@@ -116,12 +143,13 @@ function App() {
   async function syncConnector(event) {
     event.preventDefault();
     try {
-      const res = await fetch(`/api/connectors/${syncForm.connectorId}/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vendorsCsv: syncForm.vendorsCsv, invoicesCsv: syncForm.invoicesCsv })
-      });
-      const payload = await parseResponse(res);
+      const payload = await parseResponse(
+        await fetch(`/api/connectors/${syncForm.connectorId}/sync`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vendorsCsv: syncForm.vendorsCsv, invoicesCsv: syncForm.invoicesCsv })
+        })
+      );
       setNotice(`Connector sync completed: vendors ${payload.vendorsIngested}, invoices ${payload.invoicesIngested}`);
       setSyncForm((prev) => ({ ...prev, vendorsCsv: "", invoicesCsv: "" }));
       await refreshData();
@@ -134,13 +162,13 @@ function App() {
     try {
       const endpoint = type === "vendors" ? "/api/import/csv/vendors" : "/api/import/csv/invoices";
       const csv = type === "vendors" ? csvUpload.vendors : csvUpload.invoices;
-
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ csv })
-      });
-      await parseResponse(res);
+      await parseResponse(
+        await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ csv })
+        })
+      );
       setNotice(`${type} CSV ingested`);
       setCsvUpload((prev) => ({ ...prev, [type]: "" }));
       await refreshData();
@@ -152,16 +180,54 @@ function App() {
   async function runSimulation(event) {
     event.preventDefault();
     try {
-      const res = await fetch("/api/simulate/exposure", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(simulationForm)
-      });
-      const payload = await parseResponse(res);
+      const payload = await parseResponse(
+        await fetch("/api/simulate/exposure", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(simulationForm)
+        })
+      );
       setSimulationResult(payload.result);
       setNotice("Simulation completed");
     } catch (err) {
       setNotice(err.message || "Simulation failed");
+    }
+  }
+
+  async function startAuction(event) {
+    event.preventDefault();
+    try {
+      const bids = parseBids(auctionForm.bidsText);
+      await parseResponse(
+        await fetch("/api/auctions/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ invoiceId: auctionForm.invoiceId, bids })
+        })
+      );
+      setNotice("Auction started");
+      setAuctionForm({ invoiceId: "", bidsText: "" });
+      await refreshData();
+    } catch (err) {
+      setNotice(err.message || "Auction start failed");
+    }
+  }
+
+  async function settleAuction(event) {
+    event.preventDefault();
+    try {
+      await parseResponse(
+        await fetch(`/api/auctions/${settleForm.auctionId}/settle`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paymentDate: settleForm.paymentDate, utrNumber: settleForm.utrNumber })
+        })
+      );
+      setNotice("Auction settled and certificate generated");
+      setSettleForm({ auctionId: "", paymentDate: "", utrNumber: "" });
+      await refreshData();
+    } catch (err) {
+      setNotice(err.message || "Settlement failed");
     }
   }
 
@@ -186,58 +252,17 @@ function App() {
       </section>
 
       <section className="panel">
-        <h2>Workflow</h2>
-        <div className="timeline">
-          {site.phases.map((phase) => (
-            <article className="timeline-card" key={phase.phase}>
-              <strong>{phase.phase}</strong>
-              <h3>{phase.title}</h3>
-              <p>{phase.text}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel">
         <h2>Connector Hub</h2>
         <div className="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th>Connector</th>
-                <th>Mode</th>
-                <th>Endpoint</th>
-                <th>Connected</th>
-                <th>Last Sync</th>
-              </tr>
-            </thead>
-            <tbody>
-              {connectors.map((connector) => (
-                <tr key={connector.connectorId}>
-                  <td>{connector.name}</td>
-                  <td>{connector.mode}</td>
-                  <td>{connector.endpoint || "-"}</td>
-                  <td>{connector.connected ? "yes" : "no"}</td>
-                  <td>{connector.lastSyncAt || "-"}</td>
-                </tr>
-              ))}
-            </tbody>
+            <thead><tr><th>Connector</th><th>Mode</th><th>Endpoint</th><th>Connected</th><th>Last Sync</th></tr></thead>
+            <tbody>{connectors.map((c) => <tr key={c.connectorId}><td>{c.name}</td><td>{c.mode}</td><td>{c.endpoint || "-"}</td><td>{c.connected ? "yes" : "no"}</td><td>{c.lastSyncAt || "-"}</td></tr>)}</tbody>
           </table>
         </div>
-
         <form className="form-grid" onSubmit={saveConnectorConfig}>
-          <select value={connectorForm.connectorId} onChange={(e) => setConnectorForm({ ...connectorForm, connectorId: e.target.value })}>
-            {connectors.map((c) => <option key={c.connectorId} value={c.connectorId}>{c.name}</option>)}
-          </select>
-          <select value={connectorForm.mode} onChange={(e) => setConnectorForm({ ...connectorForm, mode: e.target.value })}>
-            <option value="api">api</option>
-            <option value="file">file</option>
-          </select>
-          <select value={connectorForm.authType} onChange={(e) => setConnectorForm({ ...connectorForm, authType: e.target.value })}>
-            <option value="none">none</option>
-            <option value="token">token</option>
-            <option value="basic">basic</option>
-          </select>
+          <select value={connectorForm.connectorId} onChange={(e) => setConnectorForm({ ...connectorForm, connectorId: e.target.value })}>{connectors.map((c) => <option key={c.connectorId} value={c.connectorId}>{c.name}</option>)}</select>
+          <select value={connectorForm.mode} onChange={(e) => setConnectorForm({ ...connectorForm, mode: e.target.value })}><option value="api">api</option><option value="file">file</option></select>
+          <select value={connectorForm.authType} onChange={(e) => setConnectorForm({ ...connectorForm, authType: e.target.value })}><option value="none">none</option><option value="token">token</option><option value="basic">basic</option></select>
           <input placeholder="Endpoint URL" value={connectorForm.endpoint} onChange={(e) => setConnectorForm({ ...connectorForm, endpoint: e.target.value })} />
           <button className="btn" type="submit">Save Connector Config</button>
         </form>
@@ -246,9 +271,7 @@ function App() {
       <section className="panel">
         <h2>Connector Sync (CSV Payload)</h2>
         <form onSubmit={syncConnector} className="stack-form">
-          <select value={syncForm.connectorId} onChange={(e) => setSyncForm({ ...syncForm, connectorId: e.target.value })}>
-            {connectors.map((c) => <option key={c.connectorId} value={c.connectorId}>{c.name}</option>)}
-          </select>
+          <select value={syncForm.connectorId} onChange={(e) => setSyncForm({ ...syncForm, connectorId: e.target.value })}>{connectors.map((c) => <option key={c.connectorId} value={c.connectorId}>{c.name}</option>)}</select>
           <textarea rows={5} placeholder="Vendors CSV" value={syncForm.vendorsCsv} onChange={(e) => setSyncForm({ ...syncForm, vendorsCsv: e.target.value })} />
           <textarea rows={6} placeholder="Invoices CSV" value={syncForm.invoicesCsv} onChange={(e) => setSyncForm({ ...syncForm, invoicesCsv: e.target.value })} />
           <button className="btn" type="submit">Run Connector Sync</button>
@@ -270,55 +293,67 @@ function App() {
       </section>
 
       <section className="panel">
+        <h2>Auction Engine</h2>
+        <form className="stack-form" onSubmit={startAuction}>
+          <input placeholder="Invoice ID" value={auctionForm.invoiceId} onChange={(e) => setAuctionForm({ ...auctionForm, invoiceId: e.target.value })} />
+          <textarea rows={4} placeholder="Bids: lender,annualRate,processingFeePct" value={auctionForm.bidsText} onChange={(e) => setAuctionForm({ ...auctionForm, bidsText: e.target.value })} />
+          <button className="btn" type="submit">Start Auction</button>
+        </form>
+
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Auction</th><th>Invoice</th><th>Status</th><th>Winner</th><th>Cost</th><th>Created</th></tr></thead>
+            <tbody>{auctions.map((a) => <tr key={a.auctionId}><td>{a.auctionId}</td><td>{a.invoiceId}</td><td>{a.status}</td><td>{a.winner?.lender || "-"}</td><td>{a.winner ? `${a.winner.effectiveCost}%` : "-"}</td><td>{a.createdAt}</td></tr>)}</tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>Settlement & Certificate</h2>
+        <form className="form-grid" onSubmit={settleAuction}>
+          <input placeholder="Auction ID" value={settleForm.auctionId} onChange={(e) => setSettleForm({ ...settleForm, auctionId: e.target.value })} />
+          <input type="date" value={settleForm.paymentDate} onChange={(e) => setSettleForm({ ...settleForm, paymentDate: e.target.value })} />
+          <input placeholder="UTR Number" value={settleForm.utrNumber} onChange={(e) => setSettleForm({ ...settleForm, utrNumber: e.target.value })} />
+          <button className="btn" type="submit">Settle Auction</button>
+        </form>
+
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Settlement</th><th>Auction</th><th>Invoice</th><th>Lender</th><th>Amount</th><th>Payment</th><th>UTR</th></tr></thead>
+            <tbody>{settlements.map((s) => <tr key={s.settlementId}><td>{s.settlementId}</td><td>{s.auctionId}</td><td>{s.invoiceId}</td><td>{s.lender}</td><td>{currency(s.amount)}</td><td>{s.paymentDate}</td><td>{s.utrNumber}</td></tr>)}</tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>Audit Certificates</h2>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Certificate</th><th>Invoice</th><th>Status</th><th>Due Date</th><th>Payment Date</th><th>Days Taken</th><th>UTR</th></tr></thead>
+            <tbody>{certificates.map((c) => <tr key={c.certificateId}><td>{c.certificateId}</td><td>{c.invoiceId}</td><td>{c.complianceStatus}</td><td>{c.dueDate}</td><td>{c.paymentDate}</td><td>{c.daysTaken ?? "-"}</td><td>{c.utrNumber}</td></tr>)}</tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel">
         <h2>Exposure Simulation</h2>
         <form className="form-grid" onSubmit={runSimulation}>
           <input type="number" min="1" value={simulationForm.delayDays} onChange={(e) => setSimulationForm({ ...simulationForm, delayDays: Number(e.target.value || 0) })} />
           <select value={simulationForm.enterpriseType} onChange={(e) => setSimulationForm({ ...simulationForm, enterpriseType: e.target.value })}>
-            <option value="">All Types</option>
-            <option value="micro">Micro</option>
-            <option value="small">Small</option>
-            <option value="non-msme">Non-MSME</option>
+            <option value="">All Types</option><option value="micro">Micro</option><option value="small">Small</option><option value="non-msme">Non-MSME</option>
           </select>
           <button className="btn" type="submit">Run Simulation</button>
         </form>
-
-        {simulationResult ? (
-          <div className="sim-result">
-            <p>Impacted Invoices: {simulationResult.impactedInvoices}</p>
-            <p>Additional Tax Risk: {currency(simulationResult.additionalTaxRisk)}</p>
-          </div>
-        ) : null}
+        {simulationResult ? <div className="sim-result"><p>Impacted Invoices: {simulationResult.impactedInvoices}</p><p>Additional Tax Risk: {currency(simulationResult.additionalTaxRisk)}</p></div> : null}
       </section>
 
       <section className="panel">
         <h2>Top Tax At Risk Invoices</h2>
-        {topExposure.length === 0 ? (
-          <p>No invoices available.</p>
-        ) : (
+        {topExposure.length === 0 ? <p>No invoices available.</p> : (
           <div className="table-wrap">
             <table>
-              <thead>
-                <tr>
-                  <th>Invoice</th>
-                  <th>Vendor</th>
-                  <th>Status</th>
-                  <th>Amount</th>
-                  <th>Tax At Risk</th>
-                  <th>Due Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topExposure.map((row) => (
-                  <tr key={row.invoiceId}>
-                    <td>{row.invoiceId}</td>
-                    <td>{row.vendorName}</td>
-                    <td>{row.status}</td>
-                    <td>{currency(row.amount)}</td>
-                    <td>{currency(row.taxAtRisk)}</td>
-                    <td>{row.dueDate}</td>
-                  </tr>
-                ))}
-              </tbody>
+              <thead><tr><th>Invoice</th><th>Vendor</th><th>Status</th><th>Amount</th><th>Tax At Risk</th><th>Due Date</th></tr></thead>
+              <tbody>{topExposure.map((row) => <tr key={row.invoiceId}><td>{row.invoiceId}</td><td>{row.vendorName}</td><td>{row.status}</td><td>{currency(row.amount)}</td><td>{currency(row.taxAtRisk)}</td><td>{row.dueDate}</td></tr>)}</tbody>
             </table>
           </div>
         )}
@@ -326,29 +361,11 @@ function App() {
 
       <section className="panel">
         <h2>Ingestion Logs</h2>
-        {logs.length === 0 ? (
-          <p>No ingestion logs yet.</p>
-        ) : (
+        {logs.length === 0 ? <p>No ingestion logs yet.</p> : (
           <div className="table-wrap">
             <table>
-              <thead>
-                <tr>
-                  <th>Timestamp</th>
-                  <th>Type</th>
-                  <th>Source</th>
-                  <th>Accepted</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((log) => (
-                  <tr key={log.id}>
-                    <td>{log.timestamp}</td>
-                    <td>{log.type}</td>
-                    <td>{log.source}</td>
-                    <td>{log.accepted}</td>
-                  </tr>
-                ))}
-              </tbody>
+              <thead><tr><th>Timestamp</th><th>Type</th><th>Source</th><th>Accepted</th></tr></thead>
+              <tbody>{logs.map((log) => <tr key={log.id}><td>{log.timestamp}</td><td>{log.type}</td><td>{log.source}</td><td>{log.accepted}</td></tr>)}</tbody>
             </table>
           </div>
         )}

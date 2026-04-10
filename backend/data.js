@@ -11,26 +11,10 @@ const siteContent = {
       "KredXcel connects ERP payment data, computes compliance exposure in real time, and generates evidence-backed reporting workflows."
   },
   phases: [
-    {
-      phase: "Phase 1",
-      title: "Deep-ERP Ingestion",
-      text: "Ingest vendors and invoices through ERP connectors or API import jobs."
-    },
-    {
-      phase: "Phase 2",
-      title: "Compliance Watchdog",
-      text: "Track 15/45-day timelines and identify dues that are approaching breach."
-    },
-    {
-      phase: "Phase 3",
-      title: "Liquidity Bridge",
-      text: "Prioritize at-risk invoices for financing or accelerated settlement routes."
-    },
-    {
-      phase: "Phase 4",
-      title: "Audit Vault",
-      text: "Prepare evidence packets with settlement timelines and transaction references."
-    }
+    { phase: "Phase 1", title: "Deep-ERP Ingestion", text: "Ingest vendors and invoices through ERP connectors or API import jobs." },
+    { phase: "Phase 2", title: "Compliance Watchdog", text: "Track 15/45-day timelines and identify dues that are approaching breach." },
+    { phase: "Phase 3", title: "Liquidity Bridge", text: "Prioritize at-risk invoices for financing or accelerated settlement routes." },
+    { phase: "Phase 4", title: "Audit Vault", text: "Prepare evidence packets with settlement timelines and transaction references." }
   ],
   capabilities: [
     "GSTN-Udyam Verification Workflows",
@@ -51,6 +35,9 @@ function defaultDb() {
       { connectorId: "oracle", name: "Oracle", mode: "api", endpoint: "", authType: "token", connected: false, lastSyncAt: "" }
     ],
     ingestionLogs: [],
+    auctions: [],
+    settlements: [],
+    auditCertificates: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -62,13 +49,16 @@ function ensureShape(db) {
     invoices: Array.isArray(db.invoices) ? db.invoices : [],
     connectors: Array.isArray(db.connectors) && db.connectors.length > 0 ? db.connectors : defaultDb().connectors,
     ingestionLogs: Array.isArray(db.ingestionLogs) ? db.ingestionLogs : [],
+    auctions: Array.isArray(db.auctions) ? db.auctions : [],
+    settlements: Array.isArray(db.settlements) ? db.settlements : [],
+    auditCertificates: Array.isArray(db.auditCertificates) ? db.auditCertificates : [],
     createdAt: db.createdAt || new Date().toISOString(),
     updatedAt: db.updatedAt || new Date().toISOString()
   };
 }
 
 function readDb() {
-  if (!fs.existsSync(DB_PATH)) {
+  if (fs.existsSync(DB_PATH) === false) {
     const seed = defaultDb();
     fs.writeFileSync(DB_PATH, JSON.stringify(seed, null, 2));
     return seed;
@@ -85,16 +75,9 @@ function readDb() {
 }
 
 function writeDb(next) {
-  const payload = ensureShape({
-    ...next,
-    updatedAt: new Date().toISOString()
-  });
+  const payload = ensureShape({ ...next, updatedAt: new Date().toISOString() });
   fs.writeFileSync(DB_PATH, JSON.stringify(payload, null, 2));
   return payload;
 }
 
-module.exports = {
-  siteContent,
-  readDb,
-  writeDb
-};
+module.exports = { siteContent, readDb, writeDb };

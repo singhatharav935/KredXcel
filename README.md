@@ -7,8 +7,10 @@ KredXcel is an AI-driven autonomous treasury platform for Section 43B(h) complia
 - Connector hub with configuration and sync endpoints
 - CSV import pipeline for vendors and invoices
 - Real computed compliance metrics from stored records
-- Real exposure table and what-if delay simulation
-- Ingestion logs for every accepted import operation
+- Auction launch endpoint from live open invoices
+- Settlement flow that updates invoice payment state
+- Audit certificate generation on settlement
+- Ingestion and operations logs from real actions
 
 ## Run Locally
 
@@ -41,15 +43,28 @@ Frontend opens at `http://localhost:5173`.
 - `GET /api/treasury/metrics`
 - `GET /api/treasury/exposure`
 - `POST /api/simulate/exposure`
+- `GET /api/auctions`
+- `POST /api/auctions/start`
+- `POST /api/auctions/:auctionId/settle`
+- `GET /api/settlements`
+- `GET /api/audit/certificates`
 - `POST /api/contact`
 
 ## CSV Headers
 
-Vendors CSV headers:
+Vendors CSV:
 `vendorId,name,enterpriseType,gstin,udyam`
 
-Invoices CSV headers:
+Invoices CSV:
 `invoiceId,vendorId,amount,invoiceDate,acceptanceDate,hasWrittenAgreement,paymentDate,utrNumber`
+
+## Auction Bids Input (Frontend)
+
+Each line in bids textarea:
+`lender,annualRate,processingFeePct`
+
+Example:
+`Axis Bank,9.2,0.8`
 
 ## Data Note
 
