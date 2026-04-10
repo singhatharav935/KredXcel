@@ -48,6 +48,8 @@ Frontend opens at `http://localhost:5173`.
 - `POST /api/auctions/:auctionId/settle`
 - `GET /api/settlements`
 - `GET /api/audit/certificates`
+- `GET /api/audit/export?format=json|csv`
+- `GET /api/optimizer/advance-tax?quarterEnd=YYYY-MM-DD`
 - `POST /api/contact`
 
 ## CSV Headers
@@ -69,3 +71,10 @@ Example:
 ## Data Note
 
 `backend/storage.json` is git-ignored so local operational data is not pushed to GitHub.
+
+
+## Audit Export
+
+- `format=json` returns settlements + certificate bundle.
+- `format=csv` returns certificate rows as downloadable CSV.
+- Advance-tax optimizer computes quarter-end exposure from real stored invoice and vendor records.

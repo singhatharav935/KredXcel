@@ -212,6 +212,82 @@ function computeSimulation(rows, payload) {
   };
 }
 
+function parseQuarterEnd(value) {
+  if (!value) return null;
+  const text = String(value).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const date = toDate(text);
+  if (!date) return null;
+  return new Date(`${text}T23:59:59.999Z`);
+}
+
+function getQuarterEndFromNow() {
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth();
+  const qEndMonth = month <= 2 ? 2 : month <= 5 ? 5 : month <= 8 ? 8 : 11;
+  const quarterEnd = new Date(Date.UTC(year, qEndMonth + 1, 0, 23, 59, 59, 999));
+  return quarterEnd;
+}
+
+function computeAdvanceTaxOptimizer(db, quarterEndInput) {
+  const quarterEnd = quarterEndInput || getQuarterEndFromNow();
+  const quarterEndDate = quarterEnd.toISOString().slice(0, 10);
+  const vendorsById = new Map(db.vendors.map((v) => [v.vendorId, String(v.enterpriseType || '').toLowerCase()]));
+
+  let msmeInvoicesConsidered = 0;
+  let dueWithinQuarter = 0;
+  let dueAndPaidWithinQuarter = 0;
+  let dueAndUnpaidAtQuarterEnd = 0;
+  let deductionProtectedAmount = 0;
+  let deductionAtRiskAmount = 0;
+  const atRiskInvoices = [];
+
+  for (const invoice of db.invoices) {
+    const enterpriseType = vendorsById.get(invoice.vendorId) || 'unknown';
+    if (enterpriseType !== 'micro' && enterpriseType !== 'small') continue;
+    msmeInvoicesConsidered += 1;
+
+    const dueDate = getInvoiceDueDate(invoice);
+    if (!dueDate || dueDate > quarterEnd) continue;
+    dueWithinQuarter += 1;
+
+    const paidAt = invoice.paymentDate ? toDate(invoice.paymentDate) : null;
+    if (paidAt && paidAt <= quarterEnd) {
+      dueAndPaidWithinQuarter += 1;
+      deductionProtectedAmount += Number(invoice.amount || 0);
+      continue;
+    }
+
+    dueAndUnpaidAtQuarterEnd += 1;
+    const amount = Number(invoice.amount || 0);
+    deductionAtRiskAmount += amount;
+    atRiskInvoices.push({
+      invoiceId: invoice.invoiceId,
+      vendorId: invoice.vendorId,
+      amount,
+      dueDate: dueDate.toISOString().slice(0, 10),
+      paymentDate: invoice.paymentDate || null,
+      taxExposure: amount * TAX_RATE
+    });
+  }
+
+  atRiskInvoices.sort((a, b) => b.taxExposure - a.taxExposure);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    quarterEndDate,
+    msmeInvoicesConsidered,
+    dueWithinQuarter,
+    dueAndPaidWithinQuarter,
+    dueAndUnpaidAtQuarterEnd,
+    deductionProtectedAmount,
+    deductionAtRiskAmount,
+    projectedAdvanceTaxReduction: deductionAtRiskAmount * TAX_RATE,
+    atRiskInvoices: atRiskInvoices.slice(0, 25)
+  };
+}
+
 function normalizeBid(bid) {
   return {
     lender: String(bid.lender || "").trim(),
@@ -319,6 +395,64 @@ function parseConnectorSyncPath(pathname) {
   return m ? m[1] : "";
 }
 
+
+function toCsv(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return "";
+  const headers = Object.keys(rows[0]);
+  const escape = (v) => {
+    const t = String(v ?? "");
+    if (t.includes(',') || t.includes('"') || t.includes('\n')) {
+      return '"' + t.replace(/"/g, '""') + '"';
+    }
+    return t;
+  };
+  const lines = [headers.join(',')];
+  for (const row of rows) {
+    lines.push(headers.map((h) => escape(row[h])).join(','));
+  }
+  return lines.join('\n');
+}
+
+function buildAuditExport(db) {
+  const certificates = db.auditCertificates.map((c) => ({
+    certificateId: c.certificateId,
+    invoiceId: c.invoiceId,
+    settlementId: c.settlementId,
+    complianceStatus: c.complianceStatus,
+    acceptanceDate: c.acceptanceDate,
+    dueDate: c.dueDate,
+    paymentDate: c.paymentDate,
+    daysTaken: c.daysTaken,
+    withinWindow: c.withinWindow,
+    utrNumber: c.utrNumber,
+    generatedAt: c.generatedAt
+  }));
+
+  const settlements = db.settlements.map((s) => ({
+    settlementId: s.settlementId,
+    auctionId: s.auctionId,
+    invoiceId: s.invoiceId,
+    vendorId: s.vendorId,
+    lender: s.lender,
+    amount: s.amount,
+    annualRate: s.annualRate,
+    processingFeePct: s.processingFeePct,
+    paymentDate: s.paymentDate,
+    utrNumber: s.utrNumber,
+    settledAt: s.settledAt
+  }));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totals: {
+      certificates: certificates.length,
+      settlements: settlements.length
+    },
+    certificates,
+    settlements
+  };
+}
+
 const server = http.createServer(async (req, res) => {
   const parsed = new URL(req.url, `http://${req.headers.host}`);
   const path = parsed.pathname;
@@ -337,6 +471,13 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && path === "/api/auctions") return sendJson(res, 200, readDb().auctions);
   if (req.method === "GET" && path === "/api/settlements") return sendJson(res, 200, readDb().settlements);
   if (req.method === "GET" && path === "/api/audit/certificates") return sendJson(res, 200, readDb().auditCertificates);
+  if (req.method === "GET" && path === "/api/optimizer/advance-tax") {
+    const quarterEnd = parseQuarterEnd(parsed.searchParams.get("quarterEnd"));
+    if (parsed.searchParams.has("quarterEnd") && !quarterEnd) {
+      return sendJson(res, 400, { ok: false, error: "quarterEnd must be YYYY-MM-DD" });
+    }
+    return sendJson(res, 200, computeAdvanceTaxOptimizer(readDb(), quarterEnd));
+  }
 
   if (req.method === "POST" && path === "/api/connectors/config") {
     try {
@@ -449,6 +590,26 @@ const server = http.createServer(async (req, res) => {
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message });
     }
+  }
+
+  if (req.method === "GET" && path === "/api/audit/export") {
+    const db = readDb();
+    const format = String(parsed.searchParams.get("format") || "json").toLowerCase();
+    const data = buildAuditExport(db);
+
+    if (format === "csv") {
+      const csv = toCsv(data.certificates);
+      res.writeHead(200, {
+        "Content-Type": "text/csv",
+        "Access-Control-Allow-Origin": "*",
+        "Content-Disposition": "attachment; filename=\"kredxcel-audit-certificates.csv\""
+      });
+      res.end(csv);
+      return;
+    }
+
+    sendJson(res, 200, data);
+    return;
   }
 
   if (req.method === "POST" && path === "/api/contact") {

@@ -144,3 +144,26 @@ th, td {
     grid-template-columns: 1fr;
   }
 }
+
+.button-row {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.button-row .btn {
+  width: auto;
+}
+
+.optimizer-grid {
+  margin-top: 0.8rem;
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 980px) {
+  .optimizer-grid {
+    grid-template-columns: 1fr;
+  }
+}

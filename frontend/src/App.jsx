@@ -52,6 +52,8 @@ function App() {
   const [settleForm, setSettleForm] = useState({ auctionId: "", paymentDate: "", utrNumber: "" });
   const [simulationForm, setSimulationForm] = useState({ delayDays: 10, enterpriseType: "" });
   const [simulationResult, setSimulationResult] = useState(null);
+  const [optimizerQuarterEnd, setOptimizerQuarterEnd] = useState("");
+  const [optimizer, setOptimizer] = useState(null);
 
   const topExposure = useMemo(() => [...exposure].sort((a, b) => b.taxAtRisk - a.taxAtRisk).slice(0, 12), [exposure]);
 
@@ -73,7 +75,8 @@ function App() {
         logsRes,
         auctionsRes,
         settlementsRes,
-        certificatesRes
+        certificatesRes,
+        optimizerRes
       ] = await Promise.all([
         fetch("/api/site"),
         fetch("/api/treasury/metrics"),
@@ -82,7 +85,8 @@ function App() {
         fetch("/api/ingestion/logs"),
         fetch("/api/auctions"),
         fetch("/api/settlements"),
-        fetch("/api/audit/certificates")
+        fetch("/api/audit/certificates"),
+        fetch("/api/optimizer/advance-tax" + (optimizerQuarterEnd ? `?quarterEnd=${optimizerQuarterEnd}` : ""))
       ]);
 
       const [
@@ -93,7 +97,8 @@ function App() {
         logsPayload,
         auctionsPayload,
         settlementsPayload,
-        certificatesPayload
+        certificatesPayload,
+        optimizerPayload
       ] = await Promise.all([
         parseResponse(siteRes),
         parseResponse(metricsRes),
@@ -102,7 +107,8 @@ function App() {
         parseResponse(logsRes),
         parseResponse(auctionsRes),
         parseResponse(settlementsRes),
-        parseResponse(certificatesRes)
+        parseResponse(certificatesRes),
+        parseResponse(optimizerRes)
       ]);
 
       setSite(sitePayload);
@@ -113,6 +119,7 @@ function App() {
       setAuctions(auctionsPayload);
       setSettlements(settlementsPayload);
       setCertificates(certificatesPayload);
+      setOptimizer(optimizerPayload);
       setError("");
     } catch (err) {
       setError(err.message || "Backend unavailable");
@@ -194,6 +201,16 @@ function App() {
     }
   }
 
+  async function runAdvanceTaxOptimizer(event) {
+    event.preventDefault();
+    try {
+      await refreshData();
+      setNotice("Advance-tax optimizer refreshed");
+    } catch (err) {
+      setNotice(err.message || "Optimizer refresh failed");
+    }
+  }
+
   async function startAuction(event) {
     event.preventDefault();
     try {
@@ -231,6 +248,40 @@ function App() {
     }
   }
 
+  async function exportAudit(format) {
+    try {
+      const res = await fetch(`/api/audit/export?format=${format}`);
+      if (!res.ok) {
+        const payload = await res.json();
+        throw new Error(payload.error || "Export failed");
+      }
+
+      if (format === "csv") {
+        const text = await res.text();
+        const blob = new Blob([text], { type: "text/csv" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "kredxcel-audit-certificates.csv";
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const data = await res.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "kredxcel-audit-export.json";
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      setNotice(`Audit export downloaded (${format.toUpperCase()})`);
+    } catch (err) {
+      setNotice(err.message || "Audit export failed");
+    }
+  }
+
   return (
     <div className="site">
       <header className="hero">
@@ -249,6 +300,23 @@ function App() {
         <article className="card"><h3>{metrics.overdueInvoices}</h3><p>Overdue Invoices</p></article>
         <article className="card"><h3>{currency(metrics.totalOutstanding)}</h3><p>Total Outstanding</p></article>
         <article className="card"><h3>{currency(metrics.totalTaxAtRisk)}</h3><p>Total Tax At Risk</p></article>
+      </section>
+
+      <section className="panel">
+        <h2>Advance-Tax Optimizer</h2>
+        <form className="form-grid" onSubmit={runAdvanceTaxOptimizer}>
+          <input type="date" value={optimizerQuarterEnd} onChange={(e) => setOptimizerQuarterEnd(e.target.value)} />
+          <button className="btn" type="submit">Refresh Optimizer</button>
+        </form>
+        {optimizer ? (
+          <div className="optimizer-grid">
+            <article className="card"><h3>{optimizer.quarterEndDate}</h3><p>Quarter End</p></article>
+            <article className="card"><h3>{optimizer.msmeInvoicesConsidered}</h3><p>MSME Invoices</p></article>
+            <article className="card"><h3>{optimizer.dueAndUnpaidAtQuarterEnd}</h3><p>Due & Unpaid</p></article>
+            <article className="card"><h3>{currency(optimizer.deductionAtRiskAmount)}</h3><p>Deduction At Risk</p></article>
+            <article className="card"><h3>{currency(optimizer.projectedAdvanceTaxReduction)}</h3><p>Potential Tax Savings</p></article>
+          </div>
+        ) : <p>No optimizer data available.</p>}
       </section>
 
       <section className="panel">
@@ -332,6 +400,14 @@ function App() {
             <thead><tr><th>Certificate</th><th>Invoice</th><th>Status</th><th>Due Date</th><th>Payment Date</th><th>Days Taken</th><th>UTR</th></tr></thead>
             <tbody>{certificates.map((c) => <tr key={c.certificateId}><td>{c.certificateId}</td><td>{c.invoiceId}</td><td>{c.complianceStatus}</td><td>{c.dueDate}</td><td>{c.paymentDate}</td><td>{c.daysTaken ?? "-"}</td><td>{c.utrNumber}</td></tr>)}</tbody>
           </table>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>Audit Export</h2>
+        <div className="button-row">
+          <button className="btn" type="button" onClick={() => exportAudit("json")}>Download JSON Export</button>
+          <button className="btn" type="button" onClick={() => exportAudit("csv")}>Download CSV Export</button>
         </div>
       </section>
 
