@@ -39,6 +39,7 @@ Frontend opens at `http://localhost:5173`.
 - `POST /api/connectors/config`
 - `POST /api/connectors/:connectorId/sync`
 - `POST /api/vendors/:vendorId/verify`
+- `POST /api/vendors/verify-all`
 - `POST /api/import/csv/vendors`
 - `POST /api/import/csv/invoices`
 - `GET /api/ingestion/logs`
@@ -94,3 +95,5 @@ Set these backend env vars to use real GSTIN/Udyam services:
 - `UDYAM_VERIFY_PARAM` (optional, default `udyam`)
 
 Then call `POST /api/vendors/:vendorId/verify` to fetch and persist live verification data.
+
+Use `backend/.env.example` as the template for local environment setup.
