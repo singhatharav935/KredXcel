@@ -37,6 +37,7 @@ function App() {
   const [metrics, setMetrics] = useState(emptyMetrics);
   const [exposure, setExposure] = useState([]);
   const [connectors, setConnectors] = useState([]);
+  const [vendors, setVendors] = useState([]);
   const [logs, setLogs] = useState([]);
   const [auctions, setAuctions] = useState([]);
   const [settlements, setSettlements] = useState([]);
@@ -52,6 +53,7 @@ function App() {
   const [settleForm, setSettleForm] = useState({ auctionId: "", paymentDate: "", utrNumber: "" });
   const [simulationForm, setSimulationForm] = useState({ delayDays: 10, enterpriseType: "" });
   const [simulationResult, setSimulationResult] = useState(null);
+  const [verifyBusyVendorId, setVerifyBusyVendorId] = useState("");
   const [optimizerQuarterEnd, setOptimizerQuarterEnd] = useState("");
   const [optimizer, setOptimizer] = useState(null);
 
@@ -72,6 +74,7 @@ function App() {
         metricsRes,
         exposureRes,
         connectorsRes,
+        vendorsRes,
         logsRes,
         auctionsRes,
         settlementsRes,
@@ -82,6 +85,7 @@ function App() {
         fetch("/api/treasury/metrics"),
         fetch("/api/treasury/exposure"),
         fetch("/api/connectors"),
+        fetch("/api/vendors"),
         fetch("/api/ingestion/logs"),
         fetch("/api/auctions"),
         fetch("/api/settlements"),
@@ -94,6 +98,7 @@ function App() {
         metricsPayload,
         exposurePayload,
         connectorsPayload,
+        vendorsPayload,
         logsPayload,
         auctionsPayload,
         settlementsPayload,
@@ -104,6 +109,7 @@ function App() {
         parseResponse(metricsRes),
         parseResponse(exposureRes),
         parseResponse(connectorsRes),
+        parseResponse(vendorsRes),
         parseResponse(logsRes),
         parseResponse(auctionsRes),
         parseResponse(settlementsRes),
@@ -115,6 +121,7 @@ function App() {
       setMetrics(metricsPayload);
       setExposure(exposurePayload);
       setConnectors(connectorsPayload);
+      setVendors(vendorsPayload);
       setLogs(logsPayload);
       setAuctions(auctionsPayload);
       setSettlements(settlementsPayload);
@@ -181,6 +188,23 @@ function App() {
       await refreshData();
     } catch (err) {
       setNotice(err.message || "CSV ingestion failed");
+    }
+  }
+
+  async function verifyVendor(vendorId) {
+    try {
+      setVerifyBusyVendorId(vendorId);
+      await parseResponse(
+        await fetch(`/api/vendors/${encodeURIComponent(vendorId)}/verify`, {
+          method: "POST"
+        })
+      );
+      setNotice(`Vendor ${vendorId} verified from live registry APIs`);
+      await refreshData();
+    } catch (err) {
+      setNotice(err.message || "Vendor verification failed");
+    } finally {
+      setVerifyBusyVendorId("");
     }
   }
 
@@ -317,6 +341,18 @@ function App() {
             <article className="card"><h3>{currency(optimizer.projectedAdvanceTaxReduction)}</h3><p>Potential Tax Savings</p></article>
           </div>
         ) : <p>No optimizer data available.</p>}
+      </section>
+
+      <section className="panel">
+        <h2>Vendor Verification</h2>
+        {vendors.length === 0 ? <p>No vendors ingested yet.</p> : (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Vendor</th><th>Name</th><th>Type</th><th>GSTIN</th><th>Udyam</th><th>Last Verified</th><th>Action</th></tr></thead>
+              <tbody>{vendors.map((v) => <tr key={v.vendorId}><td>{v.vendorId}</td><td>{v.name}</td><td>{v.enterpriseType}</td><td>{v.gstin || "-"}</td><td>{v.udyam || "-"}</td><td>{v.verification?.verifiedAt || "-"}</td><td><button className="btn btn-inline" type="button" disabled={verifyBusyVendorId === v.vendorId} onClick={() => verifyVendor(v.vendorId)}>{verifyBusyVendorId === v.vendorId ? "Verifying..." : "Verify"}</button></td></tr>)}</tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section className="panel">
