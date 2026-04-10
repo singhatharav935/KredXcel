@@ -36,6 +36,7 @@ Frontend opens at `http://localhost:5173`.
 - `GET /api/site`
 - `GET /api/connectors`
 - `GET /api/vendors`
+- `GET /api/vendors/verification-summary`
 - `POST /api/connectors/config`
 - `POST /api/connectors/:connectorId/sync`
 - `POST /api/vendors/:vendorId/verify`

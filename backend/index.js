@@ -507,6 +507,35 @@ async function verifyVendorRecord(vendor) {
   };
 }
 
+function computeVendorVerificationSummary(db) {
+  const vendors = Array.isArray(db.vendors) ? db.vendors : [];
+  const summary = {
+    totalVendors: vendors.length,
+    verifiedVendors: 0,
+    unverifiedVendors: 0,
+    micro: 0,
+    small: 0,
+    medium: 0,
+    nonMsme: 0,
+    unknown: 0,
+    generatedAt: new Date().toISOString()
+  };
+
+  for (const vendor of vendors) {
+    const type = String(vendor.enterpriseType || "unknown").toLowerCase();
+    if (vendor.verification && vendor.verification.verifiedAt) summary.verifiedVendors += 1;
+
+    if (type === "micro") summary.micro += 1;
+    else if (type === "small") summary.small += 1;
+    else if (type === "medium") summary.medium += 1;
+    else if (type === "non-msme") summary.nonMsme += 1;
+    else summary.unknown += 1;
+  }
+
+  summary.unverifiedVendors = Math.max(0, summary.totalVendors - summary.verifiedVendors);
+  return summary;
+}
+
 function toCsv(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return "";
   const headers = Object.keys(rows[0]);
@@ -577,6 +606,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && path === "/api/site") return sendJson(res, 200, siteContent);
   if (req.method === "GET" && path === "/api/connectors") return sendJson(res, 200, readDb().connectors);
   if (req.method === "GET" && path === "/api/vendors") return sendJson(res, 200, readDb().vendors);
+  if (req.method === "GET" && path === "/api/vendors/verification-summary") return sendJson(res, 200, computeVendorVerificationSummary(readDb()));
   if (req.method === "GET" && path === "/api/ingestion/logs") return sendJson(res, 200, readDb().ingestionLogs);
   if (req.method === "GET" && path === "/api/treasury/metrics") return sendJson(res, 200, computeExposure(readDb()).summary);
   if (req.method === "GET" && path === "/api/treasury/exposure") return sendJson(res, 200, computeExposure(readDb()).analyzed);

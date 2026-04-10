@@ -173,3 +173,16 @@ th, td {
   padding: 0.4rem 0.7rem;
   font-size: 0.9rem;
 }
+
+.vendor-summary-grid {
+  margin-top: 0.8rem;
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 980px) {
+  .vendor-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

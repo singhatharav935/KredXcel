@@ -38,6 +38,7 @@ function App() {
   const [exposure, setExposure] = useState([]);
   const [connectors, setConnectors] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [vendorSummary, setVendorSummary] = useState(null);
   const [logs, setLogs] = useState([]);
   const [auctions, setAuctions] = useState([]);
   const [settlements, setSettlements] = useState([]);
@@ -76,6 +77,7 @@ function App() {
         exposureRes,
         connectorsRes,
         vendorsRes,
+        vendorSummaryRes,
         logsRes,
         auctionsRes,
         settlementsRes,
@@ -87,6 +89,7 @@ function App() {
         fetch("/api/treasury/exposure"),
         fetch("/api/connectors"),
         fetch("/api/vendors"),
+        fetch("/api/vendors/verification-summary"),
         fetch("/api/ingestion/logs"),
         fetch("/api/auctions"),
         fetch("/api/settlements"),
@@ -100,6 +103,7 @@ function App() {
         exposurePayload,
         connectorsPayload,
         vendorsPayload,
+        vendorSummaryPayload,
         logsPayload,
         auctionsPayload,
         settlementsPayload,
@@ -111,6 +115,7 @@ function App() {
         parseResponse(exposureRes),
         parseResponse(connectorsRes),
         parseResponse(vendorsRes),
+        parseResponse(vendorSummaryRes),
         parseResponse(logsRes),
         parseResponse(auctionsRes),
         parseResponse(settlementsRes),
@@ -123,6 +128,7 @@ function App() {
       setExposure(exposurePayload);
       setConnectors(connectorsPayload);
       setVendors(vendorsPayload);
+      setVendorSummary(vendorSummaryPayload);
       setLogs(logsPayload);
       setAuctions(auctionsPayload);
       setSettlements(settlementsPayload);
@@ -366,6 +372,15 @@ function App() {
             {verifyAllBusy ? "Verifying All..." : "Verify All Vendors"}
           </button>
         </div>
+        {vendorSummary ? (
+          <div className="vendor-summary-grid">
+            <article className="card"><h3>{vendorSummary.totalVendors}</h3><p>Total Vendors</p></article>
+            <article className="card"><h3>{vendorSummary.verifiedVendors}</h3><p>Verified</p></article>
+            <article className="card"><h3>{vendorSummary.unverifiedVendors}</h3><p>Unverified</p></article>
+            <article className="card"><h3>{vendorSummary.micro + vendorSummary.small}</h3><p>MSME (Micro+Small)</p></article>
+            <article className="card"><h3>{vendorSummary.nonMsme}</h3><p>Non-MSME</p></article>
+          </div>
+        ) : null}
         {vendors.length === 0 ? <p>No vendors ingested yet.</p> : (
           <div className="table-wrap">
             <table>
