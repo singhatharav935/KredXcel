@@ -54,6 +54,7 @@ function App() {
   const [simulationForm, setSimulationForm] = useState({ delayDays: 10, enterpriseType: "" });
   const [simulationResult, setSimulationResult] = useState(null);
   const [verifyBusyVendorId, setVerifyBusyVendorId] = useState("");
+  const [verifyAllBusy, setVerifyAllBusy] = useState(false);
   const [optimizerQuarterEnd, setOptimizerQuarterEnd] = useState("");
   const [optimizer, setOptimizer] = useState(null);
 
@@ -208,6 +209,21 @@ function App() {
     }
   }
 
+  async function verifyAllVendors() {
+    try {
+      setVerifyAllBusy(true);
+      const payload = await parseResponse(
+        await fetch("/api/vendors/verify-all", { method: "POST" })
+      );
+      setNotice(`Bulk verification completed: ${payload.verified} success, ${payload.failed} failed`);
+      await refreshData();
+    } catch (err) {
+      setNotice(err.message || "Bulk vendor verification failed");
+    } finally {
+      setVerifyAllBusy(false);
+    }
+  }
+
   async function runSimulation(event) {
     event.preventDefault();
     try {
@@ -345,6 +361,11 @@ function App() {
 
       <section className="panel">
         <h2>Vendor Verification</h2>
+        <div className="button-row">
+          <button className="btn" type="button" onClick={verifyAllVendors} disabled={verifyAllBusy}>
+            {verifyAllBusy ? "Verifying All..." : "Verify All Vendors"}
+          </button>
+        </div>
         {vendors.length === 0 ? <p>No vendors ingested yet.</p> : (
           <div className="table-wrap">
             <table>
