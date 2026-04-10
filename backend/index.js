@@ -4,6 +4,12 @@ const { readDb, siteContent, writeDb } = require("./data");
 
 const PORT = Number(process.env.PORT || 5000);
 const TAX_RATE = 0.3;
+const GSTIN_VERIFY_URL = process.env.GSTIN_VERIFY_URL || "";
+const GSTIN_VERIFY_KEY = process.env.GSTIN_VERIFY_KEY || "";
+const GSTIN_VERIFY_PARAM = process.env.GSTIN_VERIFY_PARAM || "gstin";
+const UDYAM_VERIFY_URL = process.env.UDYAM_VERIFY_URL || "";
+const UDYAM_VERIFY_KEY = process.env.UDYAM_VERIFY_KEY || "";
+const UDYAM_VERIFY_PARAM = process.env.UDYAM_VERIFY_PARAM || "udyam";
 
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, {
@@ -396,6 +402,73 @@ function parseConnectorSyncPath(pathname) {
 }
 
 
+function parseVendorVerifyPath(pathname) {
+  const m = pathname.match(/^\/api\/vendors\/([^/]+)\/verify$/);
+  return m ? decodeURIComponent(m[1]) : "";
+}
+
+function normalizeEnterpriseType(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return "";
+  if (text.includes("micro")) return "micro";
+  if (text.includes("small")) return "small";
+  if (text.includes("medium")) return "medium";
+  if (text.includes("non") && text.includes("msme")) return "non-msme";
+  if (text.includes("large")) return "non-msme";
+  return "";
+}
+
+function extractEnterpriseType(payload) {
+  if (!payload || typeof payload !== "object") return "";
+  const directKeys = ["enterpriseType", "enterprise_type", "classification", "msmeType", "status"];
+  for (const key of directKeys) {
+    if (key in payload) {
+      const normalized = normalizeEnterpriseType(payload[key]);
+      if (normalized) return normalized;
+    }
+  }
+  for (const value of Object.values(payload)) {
+    if (value && typeof value === "object") {
+      const nested = extractEnterpriseType(value);
+      if (nested) return nested;
+    }
+  }
+  return "";
+}
+
+async function callVerificationService(config) {
+  const idValue = String(config.idValue || "").trim();
+  if (!idValue) return null;
+  if (!config.url) throw new Error(config.type + " verification URL is not configured");
+  if (!config.apiKey) throw new Error(config.type + " verification key is not configured");
+
+  const target = new URL(config.url);
+  target.searchParams.set(config.param || "id", idValue);
+
+  const response = await fetch(target, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      Authorization: "Bearer " + config.apiKey,
+      "x-api-key": config.apiKey
+    }
+  });
+
+  const raw = await response.text();
+  let payload;
+  try {
+    payload = raw ? JSON.parse(raw) : {};
+  } catch (_err) {
+    payload = { raw };
+  }
+
+  if (!response.ok) {
+    throw new Error(config.type + " verification failed with HTTP " + response.status);
+  }
+
+  return payload;
+}
+
 function toCsv(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return "";
   const headers = Object.keys(rows[0]);
@@ -465,6 +538,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && path === "/api/health") return sendJson(res, 200, { ok: true, service: "kredxcel-api", port: PORT, timestamp: new Date().toISOString() });
   if (req.method === "GET" && path === "/api/site") return sendJson(res, 200, siteContent);
   if (req.method === "GET" && path === "/api/connectors") return sendJson(res, 200, readDb().connectors);
+  if (req.method === "GET" && path === "/api/vendors") return sendJson(res, 200, readDb().vendors);
   if (req.method === "GET" && path === "/api/ingestion/logs") return sendJson(res, 200, readDb().ingestionLogs);
   if (req.method === "GET" && path === "/api/treasury/metrics") return sendJson(res, 200, computeExposure(readDb()).summary);
   if (req.method === "GET" && path === "/api/treasury/exposure") return sendJson(res, 200, computeExposure(readDb()).analyzed);
@@ -477,6 +551,61 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 400, { ok: false, error: "quarterEnd must be YYYY-MM-DD" });
     }
     return sendJson(res, 200, computeAdvanceTaxOptimizer(readDb(), quarterEnd));
+  }
+
+  if (req.method === "POST" && path.startsWith("/api/vendors/") && path.endsWith("/verify")) {
+    try {
+      const vendorId = parseVendorVerifyPath(path);
+      if (!vendorId) return sendJson(res, 400, { ok: false, error: "invalid vendor verify path" });
+
+      const db = readDb();
+      const index = db.vendors.findIndex((v) => v.vendorId === vendorId);
+      if (index < 0) return sendJson(res, 404, { ok: false, error: "vendor not found" });
+
+      const vendor = db.vendors[index];
+      if (!vendor.gstin && !vendor.udyam) {
+        return sendJson(res, 400, { ok: false, error: "vendor must include gstin or udyam for verification" });
+      }
+
+      const [gstinData, udyamData] = await Promise.all([
+        callVerificationService({
+          type: "GSTIN",
+          url: GSTIN_VERIFY_URL,
+          apiKey: GSTIN_VERIFY_KEY,
+          param: GSTIN_VERIFY_PARAM,
+          idValue: vendor.gstin
+        }),
+        callVerificationService({
+          type: "Udyam",
+          url: UDYAM_VERIFY_URL,
+          apiKey: UDYAM_VERIFY_KEY,
+          param: UDYAM_VERIFY_PARAM,
+          idValue: vendor.udyam
+        })
+      ]);
+
+      const inferred = extractEnterpriseType(udyamData) || extractEnterpriseType(gstinData);
+      const updatedVendor = {
+        ...vendor,
+        enterpriseType: inferred || vendor.enterpriseType || "unknown",
+        verification: {
+          verifiedAt: new Date().toISOString(),
+          gstinChecked: Boolean(vendor.gstin),
+          udyamChecked: Boolean(vendor.udyam),
+          gstinResponse: gstinData || null,
+          udyamResponse: udyamData || null,
+          inferredEnterpriseType: inferred || ""
+        },
+        updatedAt: new Date().toISOString()
+      };
+
+      const vendors = [...db.vendors];
+      vendors[index] = updatedVendor;
+      const next = writeDb({ ...db, vendors });
+      return sendJson(res, 200, { ok: true, vendor: next.vendors[index] });
+    } catch (error) {
+      return sendJson(res, 502, { ok: false, error: error.message });
+    }
   }
 
   if (req.method === "POST" && path === "/api/connectors/config") {
