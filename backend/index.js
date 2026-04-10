@@ -469,6 +469,44 @@ async function callVerificationService(config) {
   return payload;
 }
 
+async function verifyVendorRecord(vendor) {
+  if (!vendor.gstin && !vendor.udyam) {
+    throw new Error("vendor must include gstin or udyam for verification");
+  }
+
+  const [gstinData, udyamData] = await Promise.all([
+    callVerificationService({
+      type: "GSTIN",
+      url: GSTIN_VERIFY_URL,
+      apiKey: GSTIN_VERIFY_KEY,
+      param: GSTIN_VERIFY_PARAM,
+      idValue: vendor.gstin
+    }),
+    callVerificationService({
+      type: "Udyam",
+      url: UDYAM_VERIFY_URL,
+      apiKey: UDYAM_VERIFY_KEY,
+      param: UDYAM_VERIFY_PARAM,
+      idValue: vendor.udyam
+    })
+  ]);
+
+  const inferred = extractEnterpriseType(udyamData) || extractEnterpriseType(gstinData);
+  return {
+    ...vendor,
+    enterpriseType: inferred || vendor.enterpriseType || "unknown",
+    verification: {
+      verifiedAt: new Date().toISOString(),
+      gstinChecked: Boolean(vendor.gstin),
+      udyamChecked: Boolean(vendor.udyam),
+      gstinResponse: gstinData || null,
+      udyamResponse: udyamData || null,
+      inferredEnterpriseType: inferred || ""
+    },
+    updatedAt: new Date().toISOString()
+  };
+}
+
 function toCsv(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return "";
   const headers = Object.keys(rows[0]);
@@ -553,6 +591,35 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, computeAdvanceTaxOptimizer(readDb(), quarterEnd));
   }
 
+  if (req.method === "POST" && path === "/api/vendors/verify-all") {
+    try {
+      const db = readDb();
+      const results = [];
+      const vendors = [...db.vendors];
+
+      for (let i = 0; i < vendors.length; i += 1) {
+        const vendor = vendors[i];
+        try {
+          vendors[i] = await verifyVendorRecord(vendor);
+          results.push({ vendorId: vendor.vendorId, ok: true, error: "" });
+        } catch (error) {
+          results.push({ vendorId: vendor.vendorId, ok: false, error: error.message });
+        }
+      }
+
+      const next = writeDb({ ...db, vendors });
+      return sendJson(res, 200, {
+        ok: true,
+        verified: results.filter((r) => r.ok).length,
+        failed: results.filter((r) => !r.ok).length,
+        results,
+        vendors: next.vendors
+      });
+    } catch (error) {
+      return sendJson(res, 502, { ok: false, error: error.message });
+    }
+  }
+
   if (req.method === "POST" && path.startsWith("/api/vendors/") && path.endsWith("/verify")) {
     try {
       const vendorId = parseVendorVerifyPath(path);
@@ -567,37 +634,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { ok: false, error: "vendor must include gstin or udyam for verification" });
       }
 
-      const [gstinData, udyamData] = await Promise.all([
-        callVerificationService({
-          type: "GSTIN",
-          url: GSTIN_VERIFY_URL,
-          apiKey: GSTIN_VERIFY_KEY,
-          param: GSTIN_VERIFY_PARAM,
-          idValue: vendor.gstin
-        }),
-        callVerificationService({
-          type: "Udyam",
-          url: UDYAM_VERIFY_URL,
-          apiKey: UDYAM_VERIFY_KEY,
-          param: UDYAM_VERIFY_PARAM,
-          idValue: vendor.udyam
-        })
-      ]);
-
-      const inferred = extractEnterpriseType(udyamData) || extractEnterpriseType(gstinData);
-      const updatedVendor = {
-        ...vendor,
-        enterpriseType: inferred || vendor.enterpriseType || "unknown",
-        verification: {
-          verifiedAt: new Date().toISOString(),
-          gstinChecked: Boolean(vendor.gstin),
-          udyamChecked: Boolean(vendor.udyam),
-          gstinResponse: gstinData || null,
-          udyamResponse: udyamData || null,
-          inferredEnterpriseType: inferred || ""
-        },
-        updatedAt: new Date().toISOString()
-      };
+      const updatedVendor = await verifyVendorRecord(vendor);
 
       const vendors = [...db.vendors];
       vendors[index] = updatedVendor;
