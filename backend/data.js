@@ -38,6 +38,7 @@ function defaultDb() {
     auctions: [],
     settlements: [],
     auditCertificates: [],
+    verificationLogs: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -52,6 +53,7 @@ function ensureShape(db) {
     auctions: Array.isArray(db.auctions) ? db.auctions : [],
     settlements: Array.isArray(db.settlements) ? db.settlements : [],
     auditCertificates: Array.isArray(db.auditCertificates) ? db.auditCertificates : [],
+    verificationLogs: Array.isArray(db.verificationLogs) ? db.verificationLogs : [],
     createdAt: db.createdAt || new Date().toISOString(),
     updatedAt: db.updatedAt || new Date().toISOString()
   };

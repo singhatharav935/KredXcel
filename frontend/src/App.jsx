@@ -39,6 +39,7 @@ function App() {
   const [connectors, setConnectors] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [vendorSummary, setVendorSummary] = useState(null);
+  const [verificationLogs, setVerificationLogs] = useState([]);
   const [logs, setLogs] = useState([]);
   const [auctions, setAuctions] = useState([]);
   const [settlements, setSettlements] = useState([]);
@@ -78,6 +79,7 @@ function App() {
         connectorsRes,
         vendorsRes,
         vendorSummaryRes,
+        verificationLogsRes,
         logsRes,
         auctionsRes,
         settlementsRes,
@@ -90,6 +92,7 @@ function App() {
         fetch("/api/connectors"),
         fetch("/api/vendors"),
         fetch("/api/vendors/verification-summary"),
+        fetch("/api/vendors/verification-logs"),
         fetch("/api/ingestion/logs"),
         fetch("/api/auctions"),
         fetch("/api/settlements"),
@@ -104,6 +107,7 @@ function App() {
         connectorsPayload,
         vendorsPayload,
         vendorSummaryPayload,
+        verificationLogsPayload,
         logsPayload,
         auctionsPayload,
         settlementsPayload,
@@ -116,6 +120,7 @@ function App() {
         parseResponse(connectorsRes),
         parseResponse(vendorsRes),
         parseResponse(vendorSummaryRes),
+        parseResponse(verificationLogsRes),
         parseResponse(logsRes),
         parseResponse(auctionsRes),
         parseResponse(settlementsRes),
@@ -129,6 +134,7 @@ function App() {
       setConnectors(connectorsPayload);
       setVendors(vendorsPayload);
       setVendorSummary(vendorSummaryPayload);
+      setVerificationLogs(verificationLogsPayload);
       setLogs(logsPayload);
       setAuctions(auctionsPayload);
       setSettlements(settlementsPayload);
@@ -386,6 +392,18 @@ function App() {
             <table>
               <thead><tr><th>Vendor</th><th>Name</th><th>Type</th><th>GSTIN</th><th>Udyam</th><th>Last Verified</th><th>Action</th></tr></thead>
               <tbody>{vendors.map((v) => <tr key={v.vendorId}><td>{v.vendorId}</td><td>{v.name}</td><td>{v.enterpriseType}</td><td>{v.gstin || "-"}</td><td>{v.udyam || "-"}</td><td>{v.verification?.verifiedAt || "-"}</td><td><button className="btn btn-inline" type="button" disabled={verifyBusyVendorId === v.vendorId} onClick={() => verifyVendor(v.vendorId)}>{verifyBusyVendorId === v.vendorId ? "Verifying..." : "Verify"}</button></td></tr>)}</tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <h2>Verification Activity</h2>
+        {verificationLogs.length === 0 ? <p>No verification logs yet.</p> : (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>Vendor</th><th>Mode</th><th>Status</th><th>Type</th><th>Error</th></tr></thead>
+              <tbody>{verificationLogs.slice(0, 30).map((row) => <tr key={row.logId}><td>{row.timestamp}</td><td>{row.vendorId}</td><td>{row.mode}</td><td>{row.ok ? "ok" : "failed"}</td><td>{row.inferredEnterpriseType || "-"}</td><td>{row.error || "-"}</td></tr>)}</tbody>
             </table>
           </div>
         )}

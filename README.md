@@ -37,6 +37,7 @@ Frontend opens at `http://localhost:5173`.
 - `GET /api/connectors`
 - `GET /api/vendors`
 - `GET /api/vendors/verification-summary`
+- `GET /api/vendors/verification-logs`
 - `POST /api/connectors/config`
 - `POST /api/connectors/:connectorId/sync`
 - `POST /api/vendors/:vendorId/verify`
@@ -98,3 +99,5 @@ Set these backend env vars to use real GSTIN/Udyam services:
 Then call `POST /api/vendors/:vendorId/verify` to fetch and persist live verification data.
 
 Use `backend/.env.example` as the template for local environment setup.
+
+Verification logs are stored in backend state and exposed via `GET /api/vendors/verification-logs`.

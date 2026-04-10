@@ -507,6 +507,20 @@ async function verifyVendorRecord(vendor) {
   };
 }
 
+function appendVerificationLog(source, entry) {
+  const log = {
+    logId: "VLOG-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+    timestamp: new Date().toISOString(),
+    vendorId: entry.vendorId || "",
+    mode: entry.mode || "single",
+    ok: Boolean(entry.ok),
+    error: entry.error || "",
+    inferredEnterpriseType: entry.inferredEnterpriseType || ""
+  };
+  const existing = Array.isArray(source) ? source : (source && source.verificationLogs) || [];
+  return [log, ...existing].slice(0, 500);
+}
+
 function computeVendorVerificationSummary(db) {
   const vendors = Array.isArray(db.vendors) ? db.vendors : [];
   const summary = {
@@ -606,6 +620,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && path === "/api/site") return sendJson(res, 200, siteContent);
   if (req.method === "GET" && path === "/api/connectors") return sendJson(res, 200, readDb().connectors);
   if (req.method === "GET" && path === "/api/vendors") return sendJson(res, 200, readDb().vendors);
+  if (req.method === "GET" && path === "/api/vendors/verification-logs") return sendJson(res, 200, readDb().verificationLogs || []);
   if (req.method === "GET" && path === "/api/vendors/verification-summary") return sendJson(res, 200, computeVendorVerificationSummary(readDb()));
   if (req.method === "GET" && path === "/api/ingestion/logs") return sendJson(res, 200, readDb().ingestionLogs);
   if (req.method === "GET" && path === "/api/treasury/metrics") return sendJson(res, 200, computeExposure(readDb()).summary);
@@ -626,18 +641,22 @@ const server = http.createServer(async (req, res) => {
       const db = readDb();
       const results = [];
       const vendors = [...db.vendors];
+      let verificationLogs = db.verificationLogs || [];
 
       for (let i = 0; i < vendors.length; i += 1) {
         const vendor = vendors[i];
         try {
-          vendors[i] = await verifyVendorRecord(vendor);
-          results.push({ vendorId: vendor.vendorId, ok: true, error: "" });
+          const verified = await verifyVendorRecord(vendor);
+          vendors[i] = verified;
+          results.push({ vendorId: vendor.vendorId, ok: true, error: "", inferredEnterpriseType: verified.verification?.inferredEnterpriseType || "" });
+          verificationLogs = appendVerificationLog(verificationLogs, { vendorId: vendor.vendorId, mode: "bulk", ok: true, inferredEnterpriseType: verified.verification?.inferredEnterpriseType || "" });
         } catch (error) {
-          results.push({ vendorId: vendor.vendorId, ok: false, error: error.message });
+          results.push({ vendorId: vendor.vendorId, ok: false, error: error.message, inferredEnterpriseType: "" });
+          verificationLogs = appendVerificationLog(verificationLogs, { vendorId: vendor.vendorId, mode: "bulk", ok: false, error: error.message, inferredEnterpriseType: "" });
         }
       }
 
-      const next = writeDb({ ...db, vendors });
+      const next = writeDb({ ...db, vendors, verificationLogs });
       return sendJson(res, 200, {
         ok: true,
         verified: results.filter((r) => r.ok).length,
@@ -668,9 +687,21 @@ const server = http.createServer(async (req, res) => {
 
       const vendors = [...db.vendors];
       vendors[index] = updatedVendor;
-      const next = writeDb({ ...db, vendors });
+      const verificationLogs = appendVerificationLog(db, {
+        vendorId,
+        mode: "single",
+        ok: true,
+        inferredEnterpriseType: updatedVendor.verification?.inferredEnterpriseType || ""
+      });
+      const next = writeDb({ ...db, vendors, verificationLogs });
       return sendJson(res, 200, { ok: true, vendor: next.vendors[index] });
     } catch (error) {
+      try {
+        const vendorId = parseVendorVerifyPath(path);
+        const db = readDb();
+        const verificationLogs = appendVerificationLog(db, { vendorId, mode: "single", ok: false, error: error.message, inferredEnterpriseType: "" });
+        writeDb({ ...db, verificationLogs });
+      } catch (_ignore) {}
       return sendJson(res, 502, { ok: false, error: error.message });
     }
   }
