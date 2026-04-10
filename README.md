@@ -35,8 +35,10 @@ Frontend opens at `http://localhost:5173`.
 - `GET /api/health`
 - `GET /api/site`
 - `GET /api/connectors`
+- `GET /api/vendors`
 - `POST /api/connectors/config`
 - `POST /api/connectors/:connectorId/sync`
+- `POST /api/vendors/:vendorId/verify`
 - `POST /api/import/csv/vendors`
 - `POST /api/import/csv/invoices`
 - `GET /api/ingestion/logs`
@@ -78,3 +80,17 @@ Example:
 - `format=json` returns settlements + certificate bundle.
 - `format=csv` returns certificate rows as downloadable CSV.
 - Advance-tax optimizer computes quarter-end exposure from real stored invoice and vendor records.
+
+
+## Vendor Verification (Live APIs)
+
+Set these backend env vars to use real GSTIN/Udyam services:
+
+- `GSTIN_VERIFY_URL`
+- `GSTIN_VERIFY_KEY`
+- `GSTIN_VERIFY_PARAM` (optional, default `gstin`)
+- `UDYAM_VERIFY_URL`
+- `UDYAM_VERIFY_KEY`
+- `UDYAM_VERIFY_PARAM` (optional, default `udyam`)
+
+Then call `POST /api/vendors/:vendorId/verify` to fetch and persist live verification data.
