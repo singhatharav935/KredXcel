@@ -2,13 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import "./styles.css";
 
 const emptySite = {
-  hero: {
-    eyebrow: "",
-    title: "",
-    subtitle: ""
-  },
-  phases: [],
-  capabilities: []
+  hero: { eyebrow: "", title: "", subtitle: "" },
+  phases: []
 };
 
 const emptyMetrics = {
@@ -33,64 +28,68 @@ function App() {
   const [site, setSite] = useState(emptySite);
   const [metrics, setMetrics] = useState(emptyMetrics);
   const [exposure, setExposure] = useState([]);
+  const [connectors, setConnectors] = useState([]);
+  const [logs, setLogs] = useState([]);
   const [error, setError] = useState("");
-
-  const [vendorForm, setVendorForm] = useState({
-    vendorId: "",
-    name: "",
-    enterpriseType: "micro",
-    gstin: "",
-    udyam: ""
-  });
-
-  const [invoiceForm, setInvoiceForm] = useState({
-    invoiceId: "",
-    vendorId: "",
-    amount: "",
-    invoiceDate: "",
-    acceptanceDate: "",
-    hasWrittenAgreement: true,
-    paymentDate: "",
-    utrNumber: ""
-  });
-
-  const [simulationForm, setSimulationForm] = useState({
-    delayDays: 10,
-    enterpriseType: ""
-  });
-
-  const [simulationResult, setSimulationResult] = useState(null);
   const [notice, setNotice] = useState("");
 
+  const [connectorForm, setConnectorForm] = useState({
+    connectorId: "tally",
+    mode: "file",
+    endpoint: "",
+    authType: "none"
+  });
+
+  const [syncForm, setSyncForm] = useState({
+    connectorId: "tally",
+    vendorsCsv: "",
+    invoicesCsv: ""
+  });
+
+  const [csvUpload, setCsvUpload] = useState({ vendors: "", invoices: "" });
+
+  const [simulationForm, setSimulationForm] = useState({ delayDays: 10, enterpriseType: "" });
+  const [simulationResult, setSimulationResult] = useState(null);
+
   const topExposure = useMemo(
-    () => [...exposure].sort((a, b) => b.taxAtRisk - a.taxAtRisk).slice(0, 8),
+    () => [...exposure].sort((a, b) => b.taxAtRisk - a.taxAtRisk).slice(0, 12),
     [exposure]
   );
 
+  async function parseResponse(res) {
+    const payload = await res.json();
+    if (res.ok === false) {
+      throw new Error(payload.error || "Request failed");
+    }
+    return payload;
+  }
+
   async function refreshData() {
     try {
-      const [siteRes, metricsRes, exposureRes] = await Promise.all([
+      const [siteRes, metricsRes, exposureRes, connectorsRes, logsRes] = await Promise.all([
         fetch("/api/site"),
         fetch("/api/treasury/metrics"),
-        fetch("/api/treasury/exposure")
+        fetch("/api/treasury/exposure"),
+        fetch("/api/connectors"),
+        fetch("/api/ingestion/logs")
       ]);
 
-      if (!siteRes.ok || !metricsRes.ok || !exposureRes.ok) {
-        throw new Error("API unavailable");
-      }
-
-      const [sitePayload, metricsPayload, exposurePayload] = await Promise.all([
-        siteRes.json(),
-        metricsRes.json(),
-        exposureRes.json()
+      const [sitePayload, metricsPayload, exposurePayload, connectorsPayload, logsPayload] = await Promise.all([
+        parseResponse(siteRes),
+        parseResponse(metricsRes),
+        parseResponse(exposureRes),
+        parseResponse(connectorsRes),
+        parseResponse(logsRes)
       ]);
 
       setSite(sitePayload);
       setMetrics(metricsPayload);
       setExposure(exposurePayload);
+      setConnectors(connectorsPayload);
+      setLogs(logsPayload);
       setError("");
-    } catch (_err) {
-      setError("Backend unavailable. Start backend first, then refresh.");
+    } catch (err) {
+      setError(err.message || "Backend unavailable");
     }
   }
 
@@ -98,74 +97,72 @@ function App() {
     refreshData();
   }, []);
 
-  async function submitVendor(event) {
+  async function saveConnectorConfig(event) {
     event.preventDefault();
-    const res = await fetch("/api/ingest/vendors", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vendors: [vendorForm] })
-    });
-
-    const payload = await res.json();
-    if (!res.ok) {
-      setNotice(payload.error || "Failed to ingest vendor");
-      return;
+    try {
+      const res = await fetch("/api/connectors/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(connectorForm)
+      });
+      await parseResponse(res);
+      setNotice("Connector configuration saved");
+      await refreshData();
+    } catch (err) {
+      setNotice(err.message || "Unable to save connector config");
     }
-
-    setNotice("Vendor ingested successfully");
-    setVendorForm({ vendorId: "", name: "", enterpriseType: "micro", gstin: "", udyam: "" });
-    refreshData();
   }
 
-  async function submitInvoice(event) {
+  async function syncConnector(event) {
     event.preventDefault();
-    const payload = {
-      ...invoiceForm,
-      amount: Number(invoiceForm.amount || 0)
-    };
-
-    const res = await fetch("/api/ingest/invoices", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ invoices: [payload] })
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      setNotice(data.error || "Failed to ingest invoice");
-      return;
+    try {
+      const res = await fetch(`/api/connectors/${syncForm.connectorId}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vendorsCsv: syncForm.vendorsCsv, invoicesCsv: syncForm.invoicesCsv })
+      });
+      const payload = await parseResponse(res);
+      setNotice(`Connector sync completed: vendors ${payload.vendorsIngested}, invoices ${payload.invoicesIngested}`);
+      setSyncForm((prev) => ({ ...prev, vendorsCsv: "", invoicesCsv: "" }));
+      await refreshData();
+    } catch (err) {
+      setNotice(err.message || "Connector sync failed");
     }
+  }
 
-    setNotice("Invoice ingested successfully");
-    setInvoiceForm({
-      invoiceId: "",
-      vendorId: "",
-      amount: "",
-      invoiceDate: "",
-      acceptanceDate: "",
-      hasWrittenAgreement: true,
-      paymentDate: "",
-      utrNumber: ""
-    });
-    refreshData();
+  async function uploadCsv(type) {
+    try {
+      const endpoint = type === "vendors" ? "/api/import/csv/vendors" : "/api/import/csv/invoices";
+      const csv = type === "vendors" ? csvUpload.vendors : csvUpload.invoices;
+
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csv })
+      });
+      await parseResponse(res);
+      setNotice(`${type} CSV ingested`);
+      setCsvUpload((prev) => ({ ...prev, [type]: "" }));
+      await refreshData();
+    } catch (err) {
+      setNotice(err.message || "CSV ingestion failed");
+    }
   }
 
   async function runSimulation(event) {
     event.preventDefault();
-    const res = await fetch("/api/simulate/exposure", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(simulationForm)
-    });
-
-    const payload = await res.json();
-    if (!res.ok) {
-      setNotice(payload.error || "Simulation failed");
-      return;
+    try {
+      const res = await fetch("/api/simulate/exposure", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(simulationForm)
+      });
+      const payload = await parseResponse(res);
+      setSimulationResult(payload.result);
+      setNotice("Simulation completed");
+    } catch (err) {
+      setNotice(err.message || "Simulation failed");
     }
-
-    setSimulationResult(payload.result);
-    setNotice("Simulation completed");
   }
 
   return (
@@ -202,37 +199,74 @@ function App() {
       </section>
 
       <section className="panel">
-        <h2>Ingest Vendor</h2>
-        <form className="form-grid" onSubmit={submitVendor}>
-          <input required placeholder="Vendor ID" value={vendorForm.vendorId} onChange={(e) => setVendorForm({ ...vendorForm, vendorId: e.target.value })} />
-          <input required placeholder="Vendor Name" value={vendorForm.name} onChange={(e) => setVendorForm({ ...vendorForm, name: e.target.value })} />
-          <select value={vendorForm.enterpriseType} onChange={(e) => setVendorForm({ ...vendorForm, enterpriseType: e.target.value })}>
-            <option value="micro">Micro</option>
-            <option value="small">Small</option>
-            <option value="non-msme">Non-MSME</option>
+        <h2>Connector Hub</h2>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Connector</th>
+                <th>Mode</th>
+                <th>Endpoint</th>
+                <th>Connected</th>
+                <th>Last Sync</th>
+              </tr>
+            </thead>
+            <tbody>
+              {connectors.map((connector) => (
+                <tr key={connector.connectorId}>
+                  <td>{connector.name}</td>
+                  <td>{connector.mode}</td>
+                  <td>{connector.endpoint || "-"}</td>
+                  <td>{connector.connected ? "yes" : "no"}</td>
+                  <td>{connector.lastSyncAt || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <form className="form-grid" onSubmit={saveConnectorConfig}>
+          <select value={connectorForm.connectorId} onChange={(e) => setConnectorForm({ ...connectorForm, connectorId: e.target.value })}>
+            {connectors.map((c) => <option key={c.connectorId} value={c.connectorId}>{c.name}</option>)}
           </select>
-          <input placeholder="GSTIN" value={vendorForm.gstin} onChange={(e) => setVendorForm({ ...vendorForm, gstin: e.target.value })} />
-          <input placeholder="Udyam" value={vendorForm.udyam} onChange={(e) => setVendorForm({ ...vendorForm, udyam: e.target.value })} />
-          <button className="btn" type="submit">Save Vendor</button>
+          <select value={connectorForm.mode} onChange={(e) => setConnectorForm({ ...connectorForm, mode: e.target.value })}>
+            <option value="api">api</option>
+            <option value="file">file</option>
+          </select>
+          <select value={connectorForm.authType} onChange={(e) => setConnectorForm({ ...connectorForm, authType: e.target.value })}>
+            <option value="none">none</option>
+            <option value="token">token</option>
+            <option value="basic">basic</option>
+          </select>
+          <input placeholder="Endpoint URL" value={connectorForm.endpoint} onChange={(e) => setConnectorForm({ ...connectorForm, endpoint: e.target.value })} />
+          <button className="btn" type="submit">Save Connector Config</button>
         </form>
       </section>
 
       <section className="panel">
-        <h2>Ingest Invoice</h2>
-        <form className="form-grid" onSubmit={submitInvoice}>
-          <input required placeholder="Invoice ID" value={invoiceForm.invoiceId} onChange={(e) => setInvoiceForm({ ...invoiceForm, invoiceId: e.target.value })} />
-          <input required placeholder="Vendor ID" value={invoiceForm.vendorId} onChange={(e) => setInvoiceForm({ ...invoiceForm, vendorId: e.target.value })} />
-          <input required type="number" min="1" placeholder="Amount" value={invoiceForm.amount} onChange={(e) => setInvoiceForm({ ...invoiceForm, amount: e.target.value })} />
-          <input required type="date" value={invoiceForm.invoiceDate} onChange={(e) => setInvoiceForm({ ...invoiceForm, invoiceDate: e.target.value })} />
-          <input type="date" value={invoiceForm.acceptanceDate} onChange={(e) => setInvoiceForm({ ...invoiceForm, acceptanceDate: e.target.value })} />
-          <label className="checkbox">
-            <input type="checkbox" checked={invoiceForm.hasWrittenAgreement} onChange={(e) => setInvoiceForm({ ...invoiceForm, hasWrittenAgreement: e.target.checked })} />
-            Written Agreement (45 days)
-          </label>
-          <input type="date" value={invoiceForm.paymentDate} onChange={(e) => setInvoiceForm({ ...invoiceForm, paymentDate: e.target.value })} />
-          <input placeholder="UTR Number" value={invoiceForm.utrNumber} onChange={(e) => setInvoiceForm({ ...invoiceForm, utrNumber: e.target.value })} />
-          <button className="btn" type="submit">Save Invoice</button>
+        <h2>Connector Sync (CSV Payload)</h2>
+        <form onSubmit={syncConnector} className="stack-form">
+          <select value={syncForm.connectorId} onChange={(e) => setSyncForm({ ...syncForm, connectorId: e.target.value })}>
+            {connectors.map((c) => <option key={c.connectorId} value={c.connectorId}>{c.name}</option>)}
+          </select>
+          <textarea rows={5} placeholder="Vendors CSV" value={syncForm.vendorsCsv} onChange={(e) => setSyncForm({ ...syncForm, vendorsCsv: e.target.value })} />
+          <textarea rows={6} placeholder="Invoices CSV" value={syncForm.invoicesCsv} onChange={(e) => setSyncForm({ ...syncForm, invoicesCsv: e.target.value })} />
+          <button className="btn" type="submit">Run Connector Sync</button>
         </form>
+      </section>
+
+      <section className="panel">
+        <h2>Direct CSV Upload</h2>
+        <div className="upload-grid">
+          <div>
+            <textarea rows={6} placeholder="Vendors CSV" value={csvUpload.vendors} onChange={(e) => setCsvUpload({ ...csvUpload, vendors: e.target.value })} />
+            <button className="btn" type="button" onClick={() => uploadCsv("vendors")}>Upload Vendors CSV</button>
+          </div>
+          <div>
+            <textarea rows={6} placeholder="Invoices CSV" value={csvUpload.invoices} onChange={(e) => setCsvUpload({ ...csvUpload, invoices: e.target.value })} />
+            <button className="btn" type="button" onClick={() => uploadCsv("invoices")}>Upload Invoices CSV</button>
+          </div>
+        </div>
       </section>
 
       <section className="panel">
@@ -259,7 +293,7 @@ function App() {
       <section className="panel">
         <h2>Top Tax At Risk Invoices</h2>
         {topExposure.length === 0 ? (
-          <p>No invoices ingested yet.</p>
+          <p>No invoices available.</p>
         ) : (
           <div className="table-wrap">
             <table>
@@ -282,6 +316,36 @@ function App() {
                     <td>{currency(row.amount)}</td>
                     <td>{currency(row.taxAtRisk)}</td>
                     <td>{row.dueDate}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <h2>Ingestion Logs</h2>
+        {logs.length === 0 ? (
+          <p>No ingestion logs yet.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Type</th>
+                  <th>Source</th>
+                  <th>Accepted</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((log) => (
+                  <tr key={log.id}>
+                    <td>{log.timestamp}</td>
+                    <td>{log.type}</td>
+                    <td>{log.source}</td>
+                    <td>{log.accepted}</td>
                   </tr>
                 ))}
               </tbody>

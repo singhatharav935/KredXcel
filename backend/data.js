@@ -45,8 +45,25 @@ function defaultDb() {
   return {
     vendors: [],
     invoices: [],
+    connectors: [
+      { connectorId: "tally", name: "Tally", mode: "file", endpoint: "", authType: "none", connected: false, lastSyncAt: "" },
+      { connectorId: "sap", name: "SAP", mode: "api", endpoint: "", authType: "token", connected: false, lastSyncAt: "" },
+      { connectorId: "oracle", name: "Oracle", mode: "api", endpoint: "", authType: "token", connected: false, lastSyncAt: "" }
+    ],
+    ingestionLogs: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
+  };
+}
+
+function ensureShape(db) {
+  return {
+    vendors: Array.isArray(db.vendors) ? db.vendors : [],
+    invoices: Array.isArray(db.invoices) ? db.invoices : [],
+    connectors: Array.isArray(db.connectors) && db.connectors.length > 0 ? db.connectors : defaultDb().connectors,
+    ingestionLogs: Array.isArray(db.ingestionLogs) ? db.ingestionLogs : [],
+    createdAt: db.createdAt || new Date().toISOString(),
+    updatedAt: db.updatedAt || new Date().toISOString()
   };
 }
 
@@ -59,7 +76,7 @@ function readDb() {
 
   const raw = fs.readFileSync(DB_PATH, "utf8");
   try {
-    return JSON.parse(raw);
+    return ensureShape(JSON.parse(raw));
   } catch (_err) {
     const seed = defaultDb();
     fs.writeFileSync(DB_PATH, JSON.stringify(seed, null, 2));
@@ -68,10 +85,10 @@ function readDb() {
 }
 
 function writeDb(next) {
-  const payload = {
+  const payload = ensureShape({
     ...next,
     updatedAt: new Date().toISOString()
-  };
+  });
   fs.writeFileSync(DB_PATH, JSON.stringify(payload, null, 2));
   return payload;
 }

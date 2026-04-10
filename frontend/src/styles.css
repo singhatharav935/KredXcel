@@ -17,7 +17,7 @@ body {
 }
 
 .site {
-  width: min(1140px, calc(100% - 2rem));
+  width: min(1160px, calc(100% - 2rem));
   margin: 1rem auto 3rem;
 }
 
@@ -30,7 +30,7 @@ body {
 
 .eyebrow { margin: 0; opacity: 0.9; text-transform: uppercase; font-size: 12px; letter-spacing: 0.05em; }
 
-h1 { margin: 0.5rem 0 0; font-size: clamp(1.6rem, 4vw, 2.6rem); }
+h1 { margin: 0.5rem 0 0; font-size: clamp(1.6rem, 4vw, 2.5rem); }
 
 .lead { margin-top: 0.8rem; line-height: 1.6; max-width: 900px; }
 
@@ -85,26 +85,25 @@ h1 { margin: 0.5rem 0 0; font-size: clamp(1.6rem, 4vw, 2.6rem); }
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.stack-form {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+
+.upload-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+}
+
 input, select, textarea, button {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 0.62rem 0.72rem;
   font: inherit;
-}
-
-.checkbox {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--muted);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 0.45rem 0.6rem;
-}
-
-.checkbox input {
-  width: auto;
 }
 
 .btn {
@@ -140,7 +139,8 @@ th, td {
 @media (max-width: 980px) {
   .metrics-grid,
   .timeline,
-  .form-grid {
+  .form-grid,
+  .upload-grid {
     grid-template-columns: 1fr;
   }
 }

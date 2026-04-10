@@ -20,7 +20,7 @@ function parseBody(req) {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk;
-      if (body.length > 2e6) {
+      if (body.length > 4e6) {
         reject(new Error("Payload too large"));
       }
     });
@@ -47,6 +47,14 @@ function toDate(value) {
   return date;
 }
 
+function parseBoolean(value) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  const text = String(value || "").trim().toLowerCase();
+  return text === "true" || text === "1" || text === "yes" || text === "y";
+}
+
 function normalizeVendor(input) {
   return {
     vendorId: String(input.vendorId || "").trim(),
@@ -59,6 +67,7 @@ function normalizeVendor(input) {
 }
 
 function normalizeInvoice(input) {
+  const hasWrittenAgreement = parseBoolean(input.hasWrittenAgreement);
   return {
     invoiceId: String(input.invoiceId || "").trim(),
     vendorId: String(input.vendorId || "").trim(),
@@ -66,10 +75,114 @@ function normalizeInvoice(input) {
     invoiceDate: String(input.invoiceDate || "").trim(),
     acceptanceDate: String(input.acceptanceDate || input.invoiceDate || "").trim(),
     paymentDate: input.paymentDate ? String(input.paymentDate).trim() : "",
-    hasWrittenAgreement: Boolean(input.hasWrittenAgreement),
-    dueDays: input.hasWrittenAgreement ? 45 : 15,
+    hasWrittenAgreement,
+    dueDays: hasWrittenAgreement ? 45 : 15,
     utrNumber: input.utrNumber ? String(input.utrNumber).trim() : "",
     updatedAt: new Date().toISOString()
+  };
+}
+
+function parseCsvLine(line) {
+  const out = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (ch === "," && !inQuotes) {
+      out.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += ch;
+  }
+  out.push(current.trim());
+  return out;
+}
+
+function parseCsv(csvText) {
+  const lines = String(csvText || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    return [];
+  }
+
+  const headers = parseCsvLine(lines[0]);
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    const row = {};
+    headers.forEach((header, idx) => {
+      row[header] = values[idx] ?? "";
+    });
+    return row;
+  });
+}
+
+function ingestVendors(db, vendorsInput, source) {
+  const map = new Map(db.vendors.map((v) => [v.vendorId, v]));
+  let accepted = 0;
+
+  vendorsInput.map(normalizeVendor).forEach((vendor) => {
+    if (!vendor.vendorId || !vendor.name) {
+      return;
+    }
+    map.set(vendor.vendorId, vendor);
+    accepted += 1;
+  });
+
+  const log = {
+    id: `LOG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    type: "vendors",
+    source,
+    accepted,
+    timestamp: new Date().toISOString()
+  };
+
+  return {
+    ...db,
+    vendors: [...map.values()],
+    ingestionLogs: [log, ...db.ingestionLogs].slice(0, 100)
+  };
+}
+
+function ingestInvoices(db, invoicesInput, source) {
+  const map = new Map(db.invoices.map((i) => [i.invoiceId, i]));
+  let accepted = 0;
+
+  invoicesInput.map(normalizeInvoice).forEach((invoice) => {
+    if (!invoice.invoiceId || !invoice.vendorId || !invoice.invoiceDate || invoice.amount <= 0) {
+      return;
+    }
+    map.set(invoice.invoiceId, invoice);
+    accepted += 1;
+  });
+
+  const log = {
+    id: `LOG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    type: "invoices",
+    source,
+    accepted,
+    timestamp: new Date().toISOString()
+  };
+
+  return {
+    ...db,
+    invoices: [...map.values()],
+    ingestionLogs: [log, ...db.ingestionLogs].slice(0, 100)
   };
 }
 
@@ -122,11 +235,6 @@ function computeExposure(db) {
   const overdueInvoices = analyzed.filter((i) => i.status === "overdue");
   const paidInvoices = analyzed.filter((i) => i.status === "paid");
 
-  const totalOutstanding = openInvoices.reduce((sum, i) => sum + i.amount, 0) +
-    overdueInvoices.reduce((sum, i) => sum + i.amount, 0);
-
-  const totalTaxAtRisk = overdueInvoices.reduce((sum, i) => sum + i.taxAtRisk, 0);
-
   return {
     analyzed,
     summary: {
@@ -135,8 +243,10 @@ function computeExposure(db) {
       openInvoices: openInvoices.length,
       overdueInvoices: overdueInvoices.length,
       paidInvoices: paidInvoices.length,
-      totalOutstanding,
-      totalTaxAtRisk
+      totalOutstanding:
+        openInvoices.reduce((sum, i) => sum + i.amount, 0) +
+        overdueInvoices.reduce((sum, i) => sum + i.amount, 0),
+      totalTaxAtRisk: overdueInvoices.reduce((sum, i) => sum + i.taxAtRisk, 0)
     }
   };
 }
@@ -149,7 +259,8 @@ function computeSimulation(exposureRows, payload) {
     return {
       delayDays: 0,
       impactedInvoices: 0,
-      additionalTaxRisk: 0
+      additionalTaxRisk: 0,
+      impactedInvoiceIds: []
     };
   }
 
@@ -164,15 +275,18 @@ function computeSimulation(exposureRows, payload) {
   });
 
   const impacted = candidates.filter((row) => row.daysToDue - delayDays < 0);
-  const additionalTaxRisk = impacted.reduce((sum, row) => sum + row.amount * TAX_RATE, 0);
-
   return {
     delayDays,
     enterpriseType: targetType || "all",
     impactedInvoices: impacted.length,
-    additionalTaxRisk,
+    additionalTaxRisk: impacted.reduce((sum, row) => sum + row.amount * TAX_RATE, 0),
     impactedInvoiceIds: impacted.map((row) => row.invoiceId)
   };
+}
+
+function extractConnectorId(path) {
+  const match = path.match(/^\/api\/connectors\/([^/]+)\/sync$/);
+  return match ? match[1] : "";
 }
 
 const server = http.createServer(async (req, res) => {
@@ -199,17 +313,137 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && path === "/api/connectors") {
+    const db = readDb();
+    sendJson(res, 200, db.connectors);
+    return;
+  }
+
+  if (req.method === "POST" && path === "/api/connectors/config") {
+    try {
+      const body = await parseBody(req);
+      const connectorId = String(body.connectorId || "").trim().toLowerCase();
+      if (!connectorId) {
+        sendJson(res, 400, { ok: false, error: "connectorId is required" });
+        return;
+      }
+
+      const db = readDb();
+      const updated = db.connectors.map((connector) => {
+        if (connector.connectorId !== connectorId) {
+          return connector;
+        }
+        return {
+          ...connector,
+          mode: String(body.mode || connector.mode || "api"),
+          endpoint: String(body.endpoint || "").trim(),
+          authType: String(body.authType || connector.authType || "none"),
+          connected: true
+        };
+      });
+
+      const next = writeDb({ ...db, connectors: updated });
+      sendJson(res, 200, { ok: true, connectors: next.connectors });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && path.startsWith("/api/connectors/") && path.endsWith("/sync")) {
+    try {
+      const connectorId = extractConnectorId(path);
+      if (!connectorId) {
+        sendJson(res, 400, { ok: false, error: "invalid connector path" });
+        return;
+      }
+
+      const body = await parseBody(req);
+      const vendorRows = parseCsv(body.vendorsCsv || "");
+      const invoiceRows = parseCsv(body.invoicesCsv || "");
+
+      let db = readDb();
+      if (vendorRows.length > 0) {
+        db = ingestVendors(db, vendorRows, `${connectorId}-sync`);
+      }
+      if (invoiceRows.length > 0) {
+        db = ingestInvoices(db, invoiceRows, `${connectorId}-sync`);
+      }
+
+      const connectors = db.connectors.map((connector) => {
+        if (connector.connectorId !== connectorId) {
+          return connector;
+        }
+        return {
+          ...connector,
+          connected: true,
+          lastSyncAt: new Date().toISOString()
+        };
+      });
+
+      const next = writeDb({ ...db, connectors });
+      sendJson(res, 200, {
+        ok: true,
+        connectorId,
+        vendorsIngested: vendorRows.length,
+        invoicesIngested: invoiceRows.length,
+        connectors: next.connectors
+      });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && path === "/api/import/csv/vendors") {
+    try {
+      const body = await parseBody(req);
+      const rows = parseCsv(body.csv || "");
+      if (rows.length === 0) {
+        sendJson(res, 400, { ok: false, error: "csv must include header and rows" });
+        return;
+      }
+
+      const next = writeDb(ingestVendors(readDb(), rows, "csv-upload"));
+      sendJson(res, 200, { ok: true, vendors: next.vendors.length });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && path === "/api/import/csv/invoices") {
+    try {
+      const body = await parseBody(req);
+      const rows = parseCsv(body.csv || "");
+      if (rows.length === 0) {
+        sendJson(res, 400, { ok: false, error: "csv must include header and rows" });
+        return;
+      }
+
+      const next = writeDb(ingestInvoices(readDb(), rows, "csv-upload"));
+      sendJson(res, 200, { ok: true, invoices: next.invoices.length });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message });
+    }
+    return;
+  }
+
+  if (req.method === "GET" && path === "/api/ingestion/logs") {
+    const db = readDb();
+    sendJson(res, 200, db.ingestionLogs);
+    return;
+  }
+
   if (req.method === "GET" && path === "/api/treasury/metrics") {
     const db = readDb();
-    const exposure = computeExposure(db);
-    sendJson(res, 200, exposure.summary);
+    sendJson(res, 200, computeExposure(db).summary);
     return;
   }
 
   if (req.method === "GET" && path === "/api/treasury/exposure") {
     const db = readDb();
-    const exposure = computeExposure(db);
-    sendJson(res, 200, exposure.analyzed);
+    sendJson(res, 200, computeExposure(db).analyzed);
     return;
   }
 
@@ -221,17 +455,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const db = readDb();
-      const map = new Map(db.vendors.map((v) => [v.vendorId, v]));
-
-      body.vendors.map(normalizeVendor).forEach((vendor) => {
-        if (!vendor.vendorId || !vendor.name) {
-          return;
-        }
-        map.set(vendor.vendorId, vendor);
-      });
-
-      const next = writeDb({ ...db, vendors: [...map.values()] });
+      const next = writeDb(ingestVendors(readDb(), body.vendors, "api-direct"));
       sendJson(res, 200, { ok: true, vendors: next.vendors.length });
     } catch (error) {
       sendJson(res, 400, { ok: false, error: error.message });
@@ -247,17 +471,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const db = readDb();
-      const map = new Map(db.invoices.map((i) => [i.invoiceId, i]));
-
-      body.invoices.map(normalizeInvoice).forEach((invoice) => {
-        if (!invoice.invoiceId || !invoice.vendorId || !invoice.invoiceDate || invoice.amount <= 0) {
-          return;
-        }
-        map.set(invoice.invoiceId, invoice);
-      });
-
-      const next = writeDb({ ...db, invoices: [...map.values()] });
+      const next = writeDb(ingestInvoices(readDb(), body.invoices, "api-direct"));
       sendJson(res, 200, { ok: true, invoices: next.invoices.length });
     } catch (error) {
       sendJson(res, 400, { ok: false, error: error.message });
@@ -269,8 +483,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await parseBody(req);
       const db = readDb();
-      const exposure = computeExposure(db);
-      const result = computeSimulation(exposure.analyzed, body);
+      const result = computeSimulation(computeExposure(db).analyzed, body);
       sendJson(res, 200, { ok: true, result });
     } catch (error) {
       sendJson(res, 400, { ok: false, error: error.message });
